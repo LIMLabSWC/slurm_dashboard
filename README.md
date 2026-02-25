@@ -1,6 +1,6 @@
 ## SWC Slurm Portal
 
-Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, job inspector (`scontrol show job`), and **sbatch/salloc command builders** (copy‑paste only; the app never submits or cancels jobs).
+Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, and a job inspector (`scontrol show job`). The app is **read‑only** and never submits or cancels jobs.
 
 ## Quick start (SWC)
 
@@ -42,7 +42,7 @@ That’s all most users need.
 
 - **Where the app runs**
   - At SWC, the portal typically runs **on an HPC login node (e.g. `hpc-gw2`) inside a tmux session**, so it survives SSH disconnects.
-  - You can also run it on a compute node or as a Slurm job if you prefer.
+  - You can also run it on a compute node if you prefer.
 - **Ports**
   ```bash
   # Let the script choose the first free port in 8501–8510:
@@ -72,16 +72,6 @@ That’s all most users need.
     ```
     then open `http://localhost:18501` in your browser.
   - **Phone**: use the same tunnel commands from a phone SSH app (with local port forwarding), then open `http://localhost:<port>` in the phone browser.
-
-## Run as a Slurm job
-
-Submit a small job that runs the dashboard (so you don’t keep an interactive session open):
-
-```bash
-sbatch dashboard.sbatch
-```
-
-The job output will print the node and port; tunnel to that node/port using one of the SSH recipes above.
 
 ## Safety
 

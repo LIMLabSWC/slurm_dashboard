@@ -22,10 +22,8 @@ Execution Flow:
             ├── "Overview"
             │     └── get_squeue() → get_live_by_name()
             │         get_sacct()  → get_failures_by_name()
-            ├── "Job inspector"
-            │     └── get_squeue(), get_scontrol_job()
-            └── "Generate commands"
-                  └── build_sbatch(), build_salloc()
+            └── "Job inspector"
+                  └── get_squeue(), get_scontrol_job()
 
 Side Effects:
     - Runs read-only SLURM commands: squeue, sacct, scontrol.
@@ -65,7 +63,7 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .section-title { font-weight: 600; color: #0ea5e9; margin-top: 1.25rem; margin-bottom: 0.5rem; }
+    .section-title { font-weight: 600; color: #a855f7; margin-top: 1.25rem; margin-bottom: 0.5rem; }
     .help-text { font-size: 0.85rem; color: var(--text-color); opacity: 0.9; margin-bottom: 0.75rem; }
     .legend { font-size: 0.8rem; margin-top: 0.5rem; }
     .status-running { color: #22c55e; }
@@ -550,113 +548,6 @@ def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
     return merged.sort_values(["Count", "JobName"], ascending=[False, True])
 
 
-# --------------- Command builders (no execution) ---------------
-
-
-def build_sbatch(
-    job_name: str,
-    partition: str,
-    time_limit: str,
-    mem: str,
-    script_path: str,
-    cpus_per_task: str = "1",
-    extra_args: str = "",
-) -> str:
-    """
-    Purpose:
-        Build an `sbatch` command string from form-like parameters.
-
-    Execution Flow:
-        build_sbatch()
-          └── concatenate flags and script path into a single shell command.
-
-    Side Effects:
-        - None (string construction only; command is not executed).
-
-    Inputs:
-        - job_name: Optional job name.
-        - partition: Target SLURM partition.
-        - time_limit: Time limit string, e.g. "01:00:00" or "1-00:00:00".
-        - mem: Memory request string, e.g. "4G".
-        - script_path: Path to the job script (or empty for placeholder).
-        - cpus_per_task: CPUs per task (string).
-        - extra_args: Additional raw sbatch options.
-
-    Outputs:
-        - Fully assembled `sbatch` command as a single string.
-    """
-    parts = ["sbatch"]
-    if job_name:
-        parts.append(f" --job-name={job_name}")
-    if partition:
-        parts.append(f" --partition={partition}")
-    if time_limit:
-        parts.append(f" --time={time_limit}")
-    if mem:
-        parts.append(f" --mem={mem}")
-    if cpus_per_task:
-        parts.append(f" --cpus-per-task={cpus_per_task}")
-    if extra_args.strip():
-        parts.append(" " + extra_args.strip())
-    parts.append(f" {script_path}" if script_path else " your_script.sh")
-    return "".join(parts).strip()
-
-
-def build_salloc(
-    job_name: str,
-    partition: str,
-    time_limit: str,
-    mem: str,
-    cpus_per_task: str = "1",
-    n_tasks: str = "1",
-    extra_args: str = "",
-    command: str = "",
-) -> str:
-    """
-    Purpose:
-        Build an `salloc` command string from form-like parameters.
-
-    Execution Flow:
-        build_salloc()
-          └── concatenate flags and optional trailing command.
-
-    Side Effects:
-        - None (string construction only; command is not executed).
-
-    Inputs:
-        - job_name: Optional job name.
-        - partition: Target SLURM partition.
-        - time_limit: Time limit string.
-        - mem: Memory request string.
-        - cpus_per_task: CPUs per task (string).
-        - n_tasks: Number of tasks (string).
-        - extra_args: Additional raw salloc options.
-        - command: Optional command to run inside the allocation.
-
-    Outputs:
-        - Fully assembled `salloc` command as a single string.
-    """
-    parts = ["salloc"]
-    if job_name:
-        parts.append(f" --job-name={job_name}")
-    if partition:
-        parts.append(f" --partition={partition}")
-    if time_limit:
-        parts.append(f" --time={time_limit}")
-    if mem:
-        parts.append(f" --mem={mem}")
-    if cpus_per_task:
-        parts.append(f" --cpus-per-task={cpus_per_task}")
-    if n_tasks:
-        parts.append(f" --ntasks={n_tasks}")
-    if extra_args.strip():
-        parts.append(" " + extra_args.strip())
-    base = "".join(parts).strip()
-    if command.strip():
-        return f"{base} {command.strip()}"
-    return base + "  # then run your commands in the allocated shell"
-
-
 # --------------- Sidebar: user + page ---------------
 
 default_user = os.environ.get("USER", "unknown")
@@ -674,17 +565,12 @@ with st.sidebar:
     )
     page = st.radio(
         "Page",
-        ["Overview", "Job inspector", "Generate commands"],
+        ["Overview", "Job inspector"],
         index=0,
         label_visibility="collapsed",
     )
-    refresh_s = st.slider(
-        "Refresh interval (s)",
-        min_value=0,
-        max_value=300,
-        value=0,
-        help="0 = no auto-refresh",
-    )
+    if st.button("Refresh now"):
+        st.experimental_rerun()
 
 now_utc = datetime.now(timezone.utc).strftime("%a %d %b %H:%M:%S UTC %Y")
 
@@ -693,14 +579,15 @@ now_utc = datetime.now(timezone.utc).strftime("%a %d %b %H:%M:%S UTC %Y")
 if page == "Overview":
     st.title("SWC Slurm Portal")
     st.markdown(
-        f'<p class="dashboard-meta">User: {selected_user} &nbsp;·&nbsp; {now_utc}</p>',
+        f'<p class="dashboard-meta">User: {selected_user} &nbsp;·&nbsp; Last updated: {now_utc}</p>',
         unsafe_allow_html=True,
     )
 
     df = get_squeue(selected_user)
     if df.empty:
-        running, pending, dep_bad = 0, 0, 0
+        total_jobs, running, pending, dep_bad = 0, 0, 0, 0
     else:
+        total_jobs = int(len(df))
         running = int((df["State"] == "RUNNING").sum())
         pending = int((df["State"] == "PENDING").sum())
         dep_bad = int(
@@ -709,13 +596,14 @@ if page == "Overview":
 
     st.markdown('<p class="section-title">LIVE SUMMARY</p>', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("RUNNING jobs", running)
-    c2.metric("WAITING jobs", pending)
-    c3.metric("DEP problems", dep_bad)
+    c1.metric("TOTAL jobs", total_jobs)
+    c2.metric("RUNNING jobs", running)
+    c3.metric("WAITING jobs", pending)
+    c4.metric("DEP problems", dep_bad)
     if dep_bad > 0:
-        c4.markdown('<p class="health-warn">HEALTH: ⚠ ATTENTION NEEDED</p>', unsafe_allow_html=True)
+        st.markdown('<p class="health-warn">HEALTH: ⚠ ATTENTION NEEDED</p>', unsafe_allow_html=True)
     else:
-        c4.markdown('<p class="health-ok">HEALTH: OK</p>', unsafe_allow_html=True)
+        st.markdown('<p class="health-ok">HEALTH: OK</p>', unsafe_allow_html=True)
 
     if df.empty:
         st.info("No jobs in queue.")
@@ -761,6 +649,7 @@ if page == "Overview":
             st.dataframe(styled, use_container_width=True, hide_index=True)
         except Exception:
             st.dataframe(df_display, use_container_width=True, hide_index=True)
+
         st.markdown(
             '<p class="legend">'
             'Legend: <span class="status-running">RUNNING</span>, '
