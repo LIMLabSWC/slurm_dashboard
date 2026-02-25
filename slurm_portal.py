@@ -1,7 +1,6 @@
 """
 Purpose:
-    SWC Slurm Portal — Streamlit dashboard for monitoring SLURM jobs and
-    building copy-paste job commands.
+    SWC Slurm Portal — Streamlit dashboard for monitoring SLURM jobs.
 
 Execution Flow:
     (Streamlit entrypoint)
@@ -38,7 +37,6 @@ Inputs:
 Outputs:
     - Interactive web UI rendered by Streamlit.
     - Tabular summaries of live queue and historic failures.
-    - Generated sbatch / salloc command strings for copy-paste use only.
 """
 
 from __future__ import annotations
@@ -548,6 +546,31 @@ def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
     return merged.sort_values(["Count", "JobName"], ascending=[False, True])
 
 
+if hasattr(st, "fragment"):
+    @st.fragment(run_every=1)
+    def render_refresh_age(started_at_ts: float) -> None:
+        elapsed_s = max(
+            0,
+            int(datetime.now(timezone.utc).timestamp() - started_at_ts),
+        )
+        hours, rem = divmod(elapsed_s, 3600)
+        mins, secs = divmod(rem, 60)
+        st.caption(
+            f"Elapsed since refresh: {hours:02}:{mins:02}:{secs:02}"
+        )
+else:
+    def render_refresh_age(started_at_ts: float) -> None:
+        elapsed_s = max(
+            0,
+            int(datetime.now(timezone.utc).timestamp() - started_at_ts),
+        )
+        hours, rem = divmod(elapsed_s, 3600)
+        mins, secs = divmod(rem, 60)
+        st.caption(
+            f"Elapsed since refresh: {hours:02}:{mins:02}:{secs:02}"
+        )
+
+
 # --------------- Sidebar: user + page ---------------
 
 default_user = os.environ.get("USER", "unknown")
@@ -569,7 +592,17 @@ with st.sidebar:
         index=0,
         label_visibility="collapsed",
     )
+    if "last_manual_refresh_ts" not in st.session_state:
+        st.session_state["last_manual_refresh_ts"] = datetime.now(
+            timezone.utc
+        ).timestamp()
+
+    refresh_ts = float(st.session_state["last_manual_refresh_ts"])
+    render_refresh_age(refresh_ts)
     if st.button("Refresh now"):
+        st.session_state["last_manual_refresh_ts"] = datetime.now(
+            timezone.utc
+        ).timestamp()
         st.rerun()
 
 now_utc = datetime.now(timezone.utc).strftime("%a %d %b %H:%M:%S UTC %Y")
