@@ -1,15 +1,46 @@
 """
-SWC Slurm Portal — Streamlit app for monitoring SLURM jobs.
+Purpose:
+    SWC Slurm Portal — Streamlit dashboard for monitoring SLURM jobs and
+    building copy-paste job commands.
 
-Features:
-- Overview: live queue summary, jobs by name, historic failures (with richer sacct fields).
-- Job inspector: scontrol show job <id> (read-only).
-- Generate commands: build sbatch/salloc commands to copy-paste (no execution).
+Execution Flow:
+    (Streamlit entrypoint)
+      ├── shell helpers
+      │     └── sh() → safe_sh()
+      ├── SLURM data
+      │     ├── parse_squeue() → _squeue_from_json()
+      │     ├── parse_sacct()  → _sacct_from_json()
+      │     ├── list_squeue_users()
+      │     └── scontrol_show_job()
+      ├── cached wrappers
+      │     ├── get_squeue_users(), get_squeue(), get_sacct()
+      │     └── get_live_by_name(), get_failures_by_name(), get_scontrol_job()
+      ├── summaries / helpers
+      │     ├── summarise_live_by_name()
+      │     └── summarise_failures_by_name()
+      └── pages (selected via `page` in sidebar)
+            ├── "Overview"
+            │     └── get_squeue() → get_live_by_name()
+            │         get_sacct()  → get_failures_by_name()
+            ├── "Job inspector"
+            │     └── get_squeue(), get_scontrol_job()
+            └── "Generate commands"
+                  └── build_sbatch(), build_salloc()
 
-Uses JSON output when available (squeue/sacct --json), else fallback to
-pipe-delimited / parsable2. Caching to avoid hammering the scheduler.
+Side Effects:
+    - Runs read-only SLURM commands: squeue, sacct, scontrol.
+    - Uses Streamlit caching to limit scheduler load.
+    - Relies on the current environment (PATH, USER, SLURM client config).
 
-Side effects: runs squeue, sacct, scontrol (read-only). Never submits or cancels jobs.
+Inputs:
+    - Environment variables (e.g. USER, SLURM configuration).
+    - SLURM commands available in PATH.
+    - User interaction via Streamlit widgets (sidebar controls, text inputs).
+
+Outputs:
+    - Interactive web UI rendered by Streamlit.
+    - Tabular summaries of live queue and historic failures.
+    - Generated sbatch / salloc command strings for copy-paste use only.
 """
 
 from __future__ import annotations
@@ -53,6 +84,7 @@ st.markdown(
 
 
 def sh(cmd: str) -> str:
+    """Run a shell command and return stdout, raising on non-zero exit."""
     return subprocess.check_output(
         cmd,
         shell=True,
@@ -62,6 +94,24 @@ def sh(cmd: str) -> str:
 
 
 def safe_sh(cmd: str) -> str:
+    """
+    Purpose:
+        Run a shell command and return stdout, capturing errors as strings.
+
+    Execution Flow:
+        safe_sh()
+          └── sh()
+
+    Side Effects:
+        - Executes the given shell command.
+
+    Inputs:
+        - cmd: Shell command string to execute.
+
+    Outputs:
+        - Command stdout on success.
+        - Error output or exception text on failure (no exception raised).
+    """
     try:
         return sh(cmd)
     except subprocess.CalledProcessError as e:
@@ -79,7 +129,24 @@ SACCT_ALL_COLUMNS = SACCT_BASE_COLUMNS + SACCT_EXTRA_COLUMNS
 
 
 def _squeue_from_json(out: str, user: str) -> Optional[pd.DataFrame]:
-    """Build queue DataFrame from squeue --json. Returns None if parse fails."""
+    """
+    Purpose:
+        Build a queue DataFrame from `squeue --json` output for a single user.
+
+    Execution Flow:
+        _squeue_from_json()
+          └── json.loads()
+
+    Side Effects:
+        - None (pure transformation of input string).
+
+    Inputs:
+        - out: Raw JSON string from `squeue --json`.
+        - user: Username to filter jobs for.
+
+    Outputs:
+        - pandas.DataFrame with SQUEUE_COLUMNS, or None if parsing fails.
+    """
     try:
         data = json.loads(out)
         jobs = data.get("jobs") if isinstance(data, dict) else None
@@ -107,7 +174,25 @@ def _squeue_from_json(out: str, user: str) -> Optional[pd.DataFrame]:
 
 
 def parse_squeue(user: str) -> pd.DataFrame:
-    """Parse squeue for user: try JSON first, else pipe-delimited."""
+    """
+    Purpose:
+        Obtain the current SLURM queue for a user as a DataFrame.
+
+    Execution Flow:
+        parse_squeue()
+          ├── safe_sh('squeue --json ...')
+          ├── _squeue_from_json()
+          └── safe_sh('squeue -o ...')  # pipe-delimited fallback
+
+    Side Effects:
+        - Executes `squeue` via the shell (read-only).
+
+    Inputs:
+        - user: SLURM username to query.
+
+    Outputs:
+        - pandas.DataFrame with one row per job and SQUEUE_COLUMNS.
+    """
     cmd_json = f"squeue -u {user} --json 2>/dev/null"
     out_json = safe_sh(cmd_json).strip()
     if out_json and "error" not in out_json.lower():
@@ -126,7 +211,23 @@ def parse_squeue(user: str) -> pd.DataFrame:
 
 
 def _sacct_from_json(out: str) -> Optional[pd.DataFrame]:
-    """Build sacct DataFrame from sacct --json. Returns None if parse fails."""
+    """
+    Purpose:
+        Build a history DataFrame from `sacct --json` output.
+
+    Execution Flow:
+        _sacct_from_json()
+          └── json.loads()
+
+    Side Effects:
+        - None (pure transformation of input string).
+
+    Inputs:
+        - out: Raw JSON string from `sacct --json`.
+
+    Outputs:
+        - pandas.DataFrame with SACCT_ALL_COLUMNS, or None if parsing fails.
+    """
     try:
         data = json.loads(out)
         jobs = data.get("jobs") if isinstance(data, dict) else None
@@ -161,7 +262,26 @@ def _sacct_from_json(out: str) -> Optional[pd.DataFrame]:
 
 
 def parse_sacct(user: str, start: str) -> pd.DataFrame:
-    """Parse sacct for user and time window: try JSON first, else --parsable2 with extended format."""
+    """
+    Purpose:
+        Query SLURM job history for a user and time window as a DataFrame.
+
+    Execution Flow:
+        parse_sacct()
+          ├── safe_sh('sacct --json ...')
+          ├── _sacct_from_json()
+          └── safe_sh('sacct --parsable2 ...')  # extended format fallback
+
+    Side Effects:
+        - Executes `sacct` via the shell (read-only).
+
+    Inputs:
+        - user: SLURM username to query.
+        - start: Start time string accepted by `sacct --starttime`.
+
+    Outputs:
+        - pandas.DataFrame with SACCT_ALL_COLUMNS (may be empty).
+    """
     cmd_json = (
         f"sacct -u {user} --starttime {start} --json 2>/dev/null"
     )
@@ -191,6 +311,23 @@ def parse_sacct(user: str, start: str) -> pd.DataFrame:
 
 
 def list_squeue_users() -> List[str]:
+    """
+    Purpose:
+        List distinct users currently present in the SLURM queue, plus $USER.
+
+    Execution Flow:
+        list_squeue_users()
+          └── safe_sh('squeue -o %u')
+
+    Side Effects:
+        - Executes `squeue` via the shell (read-only).
+
+    Inputs:
+        - None (uses environment variable USER implicitly).
+
+    Outputs:
+        - Sorted list of usernames.
+    """
     out = safe_sh("squeue -h -o '%u' 2>/dev/null").strip()
     users = sorted({u for u in out.splitlines() if u})
     env_user = os.environ.get("USER", "").strip()
@@ -202,7 +339,23 @@ def list_squeue_users() -> List[str]:
 
 
 def scontrol_show_job(job_id: str) -> str:
-    """Return output of scontrol show job <job_id>. Read-only."""
+    """
+    Purpose:
+        Return the raw output of `scontrol show job <job_id>` for inspection.
+
+    Execution Flow:
+        scontrol_show_job()
+          └── safe_sh('scontrol show job ...')
+
+    Side Effects:
+        - Executes `scontrol show job` via the shell (read-only).
+
+    Inputs:
+        - job_id: SLURM job ID or array task specifier.
+
+    Outputs:
+        - Formatted `scontrol show job` output, or a validation/error message.
+    """
     job_id = (job_id or "").strip()
     clean = job_id.replace(" ", "")
     if not clean or not re.match(r"^\d+(_\d+)?(\[\d+(-\d+)?(,\d+(-\d+)?)*\])?$", clean):
@@ -249,6 +402,24 @@ def get_scontrol_job(job_id: str) -> str:
 
 
 def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Purpose:
+        Aggregate live queue data by job name with status and a sample JobID.
+
+    Execution Flow:
+        summarise_live_by_name()
+          └── groupby('Name') and compute summary metrics per name.
+
+    Side Effects:
+        - None (pure DataFrame transformation).
+
+    Inputs:
+        - df: DataFrame from `parse_squeue`, including JobID, State, Time, Reason.
+
+    Outputs:
+        - DataFrame with one row per job name, counts, elapsed, status,
+          node reason, and a representative SampleJobID.
+    """
     if df.empty:
         return pd.DataFrame(
             columns=[
@@ -317,6 +488,25 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
+    """
+    Purpose:
+        Summarise historic failed/cancelled/timed-out jobs grouped by name.
+
+    Execution Flow:
+        summarise_failures_by_name()
+          ├── filter interesting failure states
+          ├── count failures per JobName
+          └── attach most recent failure details per name
+
+    Side Effects:
+        - None (pure DataFrame transformation).
+
+    Inputs:
+        - dfh: DataFrame from `parse_sacct` for a given time window.
+
+    Outputs:
+        - DataFrame with one row per JobName and aggregated failure details.
+    """
     if dfh.empty:
         return pd.DataFrame(
             columns=[
@@ -372,6 +562,29 @@ def build_sbatch(
     cpus_per_task: str = "1",
     extra_args: str = "",
 ) -> str:
+    """
+    Purpose:
+        Build an `sbatch` command string from form-like parameters.
+
+    Execution Flow:
+        build_sbatch()
+          └── concatenate flags and script path into a single shell command.
+
+    Side Effects:
+        - None (string construction only; command is not executed).
+
+    Inputs:
+        - job_name: Optional job name.
+        - partition: Target SLURM partition.
+        - time_limit: Time limit string, e.g. "01:00:00" or "1-00:00:00".
+        - mem: Memory request string, e.g. "4G".
+        - script_path: Path to the job script (or empty for placeholder).
+        - cpus_per_task: CPUs per task (string).
+        - extra_args: Additional raw sbatch options.
+
+    Outputs:
+        - Fully assembled `sbatch` command as a single string.
+    """
     parts = ["sbatch"]
     if job_name:
         parts.append(f" --job-name={job_name}")
@@ -399,6 +612,30 @@ def build_salloc(
     extra_args: str = "",
     command: str = "",
 ) -> str:
+    """
+    Purpose:
+        Build an `salloc` command string from form-like parameters.
+
+    Execution Flow:
+        build_salloc()
+          └── concatenate flags and optional trailing command.
+
+    Side Effects:
+        - None (string construction only; command is not executed).
+
+    Inputs:
+        - job_name: Optional job name.
+        - partition: Target SLURM partition.
+        - time_limit: Time limit string.
+        - mem: Memory request string.
+        - cpus_per_task: CPUs per task (string).
+        - n_tasks: Number of tasks (string).
+        - extra_args: Additional raw salloc options.
+        - command: Optional command to run inside the allocation.
+
+    Outputs:
+        - Fully assembled `salloc` command as a single string.
+    """
     parts = ["salloc"]
     if job_name:
         parts.append(f" --job-name={job_name}")
