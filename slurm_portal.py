@@ -69,7 +69,7 @@ st.markdown(
     .status-failed { color: #ef4444; }
     .status-done { color: #06b6d4; }
     .health-ok { color: #22c55e; }
-    .health-warn { color: #eab308; }
+    .health-warn { color: #f97316; }
     .dashboard-meta { font-size: 0.875rem; color: var(--text-color); opacity: 0.75; margin-top: -0.5rem; margin-bottom: 1.5rem; }
     /* Use a subtle neutral focus ring instead of error-red outlines. */
     .stTextInput input:focus,
@@ -710,15 +710,34 @@ if page == "Overview":
     if df.empty:
         st.info("No jobs in queue.")
     else:
-        with st.expander("How to read this", expanded=False):
-            st.markdown(
-                "- Rows grouped by **JOB NAME**. `SAMPLE JOB ID` = one representative job ID for that name "
-                "(prefers a RUNNING job if present). RUN/WAIT/DONE/FAIL/TOTAL = counts. "
-                "ELAPSED = time for a RUNNING task. STATUS = summary from SLURM."
-            )
         st.markdown(
             '<p class="section-title">JOBS BY NAME</p>', unsafe_allow_html=True
         )
+        with st.expander("How to read this", expanded=False):
+            st.markdown(
+                "- Rows are grouped by **JOB NAME**, so each row summarizes "
+                "all queue entries with that name.\n"
+                "- `SAMPLE JOB ID` is one representative job for that row "
+                "(prefers a RUNNING job when available).\n"
+                "- `RUN`, `WAIT`, `DONE`, `FAIL`, `TOTAL` are counts in that "
+                "group (`TOTAL = RUN + WAIT + DONE + FAIL`).\n"
+                "- `ELAPSED` shows runtime for a RUNNING task in that group; "
+                "if none are running, it is `-`.\n"
+                "- `STATUS (summary)` is the row-level state used for quick "
+                "scanning (e.g. RUNNING, WAITING, BLOCKED, FAILED).\n"
+                "- `NODE / REASON` shows a node name for running jobs, or the "
+                "scheduler reason for waiting jobs (for example dependency).\n"
+                "- `BLOCKED (dependency never satisfied)` is the key warning "
+                "state to prioritize."
+            )
+            st.markdown(
+                '<p class="legend">'
+                'Legend: <span class="status-running">RUNNING</span>, '
+                '<span class="status-waiting">WAITING</span>, '
+                '<span class="status-failed">FAILED</span>, '
+                '<span class="status-done">DONE</span></p>',
+                unsafe_allow_html=True,
+            )
         df_by_name = get_live_by_name(df)
         display_cols = [
             "Name",
@@ -767,24 +786,25 @@ if page == "Overview":
         except Exception:
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-        st.markdown(
-            '<p class="legend">'
-            'Legend: <span class="status-running">RUNNING</span>, '
-            '<span class="status-waiting">WAITING</span>, '
-            '<span class="status-failed">FAILED</span>, '
-            '<span class="status-done">DONE</span></p>',
-            unsafe_allow_html=True,
-        )
-
     st.markdown(
         '<p class="section-title">HISTORIC FAILURES (today, grouped by job name)</p>',
         unsafe_allow_html=True,
     )
-    st.markdown(
-        "<p class='help-text'>FAILED/CANCELLED/TIMEOUT/OUT_OF_MEMORY. "
-        "Other columns = most recent failure for that name. ReqMem/Timelimit/CPUTime when available.</p>",
-        unsafe_allow_html=True,
-    )
+    with st.expander("How to read this", expanded=False):
+        st.markdown(
+            "- Includes jobs from today in these states: `FAILED`, "
+            "`CANCELLED`, `TIMEOUT`, `OUT_OF_MEMORY`.\n"
+            "- Each row is grouped by `JobName`; `Count` is how many times "
+            "that job name failed/cancelled/timed out today.\n"
+            "- `LastJobID`, `LastState`, `LastExitCode`, `LastElapsed`, and "
+            "`LastNode` come from the most recent matching failure.\n"
+            "- `MaxRSS` is the recorded peak memory usage for that last "
+            "failure entry (when available from `sacct`).\n"
+            "- `ReqMem`, `Timelimit`, and `CPUTime` appear when available and "
+            "help compare requested vs observed usage.\n"
+            "- Use this table to spot recurring failing job names and inspect "
+            "the latest failed JobID in the Job inspector."
+        )
     dfh = get_sacct(selected_user, "today")
     if dfh.empty:
         st.info("No sacct data (or sacct not available).")
