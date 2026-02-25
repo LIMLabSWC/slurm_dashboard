@@ -4,6 +4,9 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
 
 ![SWC Slurm Portal demo](screenshots/swc-slurm-portal.gif)
 
+> **Note:** 
+> This project was built with a lot of AI assistance. Feedback, bug reports, and improvement suggestions are very welcome.
+
 ## Quick start (SWC)
 
 ### Setup (do once)
