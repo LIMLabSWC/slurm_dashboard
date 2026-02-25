@@ -570,7 +570,7 @@ with st.sidebar:
         label_visibility="collapsed",
     )
     if st.button("Refresh now"):
-        st.experimental_rerun()
+        st.rerun()
 
 now_utc = datetime.now(timezone.utc).strftime("%a %d %b %H:%M:%S UTC %Y")
 
