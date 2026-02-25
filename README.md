@@ -35,8 +35,8 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
 - **3. On your laptop: view in the browser**
   - Open `http://localhost:<LOCAL_PORT>` where `<LOCAL_PORT>` is the first number
     in the `-L <LOCAL_PORT>:127.0.0.1:<PORT>` part of the printed SSH command.
-    If the page is blank at first, wait a few seconds and reload the browser;
-    it can take a moment for the tunnel and portal to become ready.
+    
+    > **Note:** If the page is blank at first, wait a few seconds and reload the browser. It can take a moment for the tunnel and portal to become ready.
 
 That’s all most users need.
 
