@@ -127,9 +127,21 @@ def safe_sh(cmd: str) -> str:
 
 SQUEUE_COLUMNS = ["JobID", "State", "Name", "Time", "Reason", "Dependency"]
 SACCT_BASE_COLUMNS = [
-    "JobID", "JobName", "State", "ExitCode", "Elapsed", "NodeList", "MaxRSS",
+    "JobID",
+    "JobName",
+    "State",
+    "ExitCode",
+    "Elapsed",
+    "NodeList",
+    "MaxRSS",
 ]
-SACCT_EXTRA_COLUMNS = ["ReqMem", "Timelimit", "CPUTime", "WorkDir", "SubmitLine"]
+SACCT_EXTRA_COLUMNS = [
+    "ReqMem",
+    "Timelimit",
+    "CPUTime",
+    "WorkDir",
+    "SubmitLine",
+]
 SACCT_ALL_COLUMNS = SACCT_BASE_COLUMNS + SACCT_EXTRA_COLUMNS
 
 
@@ -240,12 +252,14 @@ def _sacct_from_json(out: str) -> Optional[pd.DataFrame]:
             return None
         rows: List[tuple] = []
         for j in jobs:
+
             def g(*keys: str, default: str = ""):
                 for k in keys:
                     v = j.get(k)
                     if v is not None and v != "":
                         return str(v)
                 return default
+
             row = (
                 g("job_id", "JobID"),
                 g("job_name", "name", "JobName"),
@@ -287,9 +301,7 @@ def parse_sacct(user: str, start: str) -> pd.DataFrame:
     Outputs:
         - pandas.DataFrame with SACCT_ALL_COLUMNS (may be empty).
     """
-    cmd_json = (
-        f"sacct -u {user} --starttime {start} --json 2>/dev/null"
-    )
+    cmd_json = f"sacct -u {user} --starttime {start} --json 2>/dev/null"
     out_json = safe_sh(cmd_json).strip()
     if out_json and "error" not in out_json.lower():
         df = _sacct_from_json(out_json)
@@ -363,7 +375,9 @@ def scontrol_show_job(job_id: str) -> str:
     """
     job_id = (job_id or "").strip()
     clean = job_id.replace(" ", "")
-    if not clean or not re.match(r"^\d+(_\d+)?(\[\d+(-\d+)?(,\d+(-\d+)?)*\])?$", clean):
+    if not clean or not re.match(
+        r"^\d+(_\d+)?(\[\d+(-\d+)?(,\d+(-\d+)?)*\])?$", clean
+    ):
         return "Invalid or empty job ID."
     out = safe_sh(f"scontrol show job {job_id} 2>&1")
     return out.strip() or "No output."
@@ -428,8 +442,16 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(
             columns=[
-                "Name", "SampleJobID", "RUN", "WAIT", "DONE", "FAIL", "TOTAL",
-                "ELAPSED", "Status", "NodeReason",
+                "Name",
+                "SampleJobID",
+                "RUN",
+                "WAIT",
+                "DONE",
+                "FAIL",
+                "TOTAL",
+                "ELAPSED",
+                "Status",
+                "NodeReason",
             ]
         )
     failed_states = ("FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY")
@@ -476,18 +498,20 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
             status = "DONE"
         else:
             status = "UNKNOWN"
-        rows.append({
-            "Name": name,
-            "SampleJobID": sample_job_id,
-            "RUN": run,
-            "WAIT": wait,
-            "DONE": done,
-            "FAIL": fail,
-            "TOTAL": total,
-            "ELAPSED": elapsed,
-            "Status": status,
-            "NodeReason": node_reason,
-        })
+        rows.append(
+            {
+                "Name": name,
+                "SampleJobID": sample_job_id,
+                "RUN": run,
+                "WAIT": wait,
+                "DONE": done,
+                "FAIL": fail,
+                "TOTAL": total,
+                "ELAPSED": elapsed,
+                "Status": status,
+                "NodeReason": node_reason,
+            }
+        )
     out = pd.DataFrame(rows)
     return out.sort_values("Name").reset_index(drop=True)
 
@@ -515,8 +539,14 @@ def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
     if dfh.empty:
         return pd.DataFrame(
             columns=[
-                "JobName", "Count", "LastJobID", "LastState", "LastExitCode",
-                "LastElapsed", "LastNode", "MaxRSS",
+                "JobName",
+                "Count",
+                "LastJobID",
+                "LastState",
+                "LastExitCode",
+                "LastElapsed",
+                "LastNode",
+                "MaxRSS",
             ]
         )
     interesting = dfh[
@@ -529,26 +559,46 @@ def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
     if interesting.empty:
         return pd.DataFrame(
             columns=[
-                "JobName", "Count", "LastJobID", "LastState", "LastExitCode",
-                "LastElapsed", "LastNode", "MaxRSS",
+                "JobName",
+                "Count",
+                "LastJobID",
+                "LastState",
+                "LastExitCode",
+                "LastElapsed",
+                "LastNode",
+                "MaxRSS",
             ]
         )
-    extra = [c for c in ["ReqMem", "Timelimit", "CPUTime", "WorkDir"] if c in interesting.columns]
+    extra = [
+        c
+        for c in ["ReqMem", "Timelimit", "CPUTime", "WorkDir"]
+        if c in interesting.columns
+    ]
     interesting_sorted = interesting.sort_values("JobID")
-    counts = interesting_sorted.groupby("JobName").size().reset_index(name="Count")
+    counts = (
+        interesting_sorted.groupby("JobName").size().reset_index(name="Count")
+    )
     last = interesting_sorted.groupby("JobName", as_index=False).tail(1)
     merged = counts.merge(last, on="JobName", how="left")
-    merged = merged.rename(columns={
-        "JobID": "LastJobID",
-        "State": "LastState",
-        "ExitCode": "LastExitCode",
-        "Elapsed": "LastElapsed",
-        "NodeList": "LastNode",
-        "MaxRSS": "MaxRSS",
-    })
+    merged = merged.rename(
+        columns={
+            "JobID": "LastJobID",
+            "State": "LastState",
+            "ExitCode": "LastExitCode",
+            "Elapsed": "LastElapsed",
+            "NodeList": "LastNode",
+            "MaxRSS": "MaxRSS",
+        }
+    )
     base_cols = [
-        "JobName", "Count", "LastJobID", "LastState", "LastExitCode",
-        "LastElapsed", "LastNode", "MaxRSS",
+        "JobName",
+        "Count",
+        "LastJobID",
+        "LastState",
+        "LastExitCode",
+        "LastElapsed",
+        "LastNode",
+        "MaxRSS",
     ]
     cols = base_cols + [c for c in extra if c in merged.columns]
     merged = merged[[c for c in cols if c in merged.columns]]
@@ -556,6 +606,7 @@ def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
 
 
 if hasattr(st, "fragment"):
+
     @st.fragment(run_every=1)
     def render_refresh_age(started_at_ts: float) -> None:
         elapsed_s = max(
@@ -564,10 +615,10 @@ if hasattr(st, "fragment"):
         )
         hours, rem = divmod(elapsed_s, 3600)
         mins, secs = divmod(rem, 60)
-        st.caption(
-            f"Elapsed since refresh: {hours:02}:{mins:02}:{secs:02}"
-        )
+        st.caption(f"Elapsed since refresh: {hours:02}:{mins:02}:{secs:02}")
+
 else:
+
     def render_refresh_age(started_at_ts: float) -> None:
         elapsed_s = max(
             0,
@@ -575,9 +626,7 @@ else:
         )
         hours, rem = divmod(elapsed_s, 3600)
         mins, secs = divmod(rem, 60)
-        st.caption(
-            f"Elapsed since refresh: {hours:02}:{mins:02}:{secs:02}"
-        )
+        st.caption(f"Elapsed since refresh: {hours:02}:{mins:02}:{secs:02}")
 
 
 # --------------- Sidebar: user + page ---------------
@@ -609,6 +658,8 @@ with st.sidebar:
     refresh_ts = float(st.session_state["last_manual_refresh_ts"])
     render_refresh_age(refresh_ts)
     if st.button("Refresh now"):
+        # Manual refresh should bypass cache TTL and fetch fresh data now.
+        st.cache_data.clear()
         st.session_state["last_manual_refresh_ts"] = datetime.now(
             timezone.utc
         ).timestamp()
@@ -633,19 +684,28 @@ if page == "Overview":
         running = int((df["State"] == "RUNNING").sum())
         pending = int((df["State"] == "PENDING").sum())
         dep_bad = int(
-            df["Reason"].str.contains("DependencyNeverSatisfied", na=False).sum()
+            df["Reason"]
+            .str.contains("DependencyNeverSatisfied", na=False)
+            .sum()
         )
 
-    st.markdown('<p class="section-title">LIVE SUMMARY</p>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="section-title">LIVE SUMMARY</p>', unsafe_allow_html=True
+    )
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("TOTAL jobs", total_jobs)
     c2.metric("RUNNING jobs", running)
     c3.metric("WAITING jobs", pending)
     c4.metric("DEP problems", dep_bad)
     if dep_bad > 0:
-        st.markdown('<p class="health-warn">HEALTH: ⚠ ATTENTION NEEDED</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="health-warn">HEALTH: ⚠ ATTENTION NEEDED</p>',
+            unsafe_allow_html=True,
+        )
     else:
-        st.markdown('<p class="health-ok">HEALTH: OK</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="health-ok">HEALTH: OK</p>', unsafe_allow_html=True
+        )
 
     if df.empty:
         st.info("No jobs in queue.")
@@ -656,18 +716,30 @@ if page == "Overview":
                 "(prefers a RUNNING job if present). RUN/WAIT/DONE/FAIL/TOTAL = counts. "
                 "ELAPSED = time for a RUNNING task. STATUS = summary from SLURM."
             )
-        st.markdown('<p class="section-title">JOBS BY NAME</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="section-title">JOBS BY NAME</p>', unsafe_allow_html=True
+        )
         df_by_name = get_live_by_name(df)
         display_cols = [
-            "Name", "SampleJobID", "RUN", "WAIT", "DONE", "FAIL", "TOTAL",
-            "ELAPSED", "Status", "NodeReason",
+            "Name",
+            "SampleJobID",
+            "RUN",
+            "WAIT",
+            "DONE",
+            "FAIL",
+            "TOTAL",
+            "ELAPSED",
+            "Status",
+            "NodeReason",
         ]
-        df_display = df_by_name[display_cols].rename(columns={
-            "Name": "JOB NAME",
-            "SampleJobID": "SAMPLE JOB ID",
-            "Status": "STATUS (summary)",
-            "NodeReason": "NODE / REASON",
-        })
+        df_display = df_by_name[display_cols].rename(
+            columns={
+                "Name": "JOB NAME",
+                "SampleJobID": "SAMPLE JOB ID",
+                "Status": "STATUS (summary)",
+                "NodeReason": "NODE / REASON",
+            }
+        )
 
         def _status_css(val: str) -> str:
             if not isinstance(val, str):
@@ -684,8 +756,11 @@ if page == "Overview":
 
         try:
             styled = df_display.style.apply(
-                lambda col: [_status_css(v) for v in col]
-                if col.name == "STATUS (summary)" else [""] * len(col),
+                lambda col: (
+                    [_status_css(v) for v in col]
+                    if col.name == "STATUS (summary)"
+                    else [""] * len(col)
+                ),
                 axis=0,
             )
             st.dataframe(styled, use_container_width=True, hide_index=True)
