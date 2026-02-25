@@ -38,13 +38,18 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
 
 - **2. From your laptop: open a tunnel to the HPC login node**
   - Copy the `ssh -N -J ... -L ...` command printed by `run_dashboard.sh` and run it in a terminal on your laptop.
-  - Keep this tunnel terminal open while you use the dashboard.
+
+> **Note:**
+>
+>Keep this tunnel terminal open while you use the dashboard.
 
 - **3. On your laptop: view in the browser**
   - Open the `http://localhost:...` URL printed by `run_dashboard.sh`.
   - If needed, `<LOCAL_PORT>` is the first number in `-L <LOCAL_PORT>:127.0.0.1:<PORT>`.
 
-> **Note:** If the page is blank at first, wait a few seconds and reload the browser. It can take a moment for the tunnel and portal to become ready.
+> **Note:**
+> 
+>If the page is blank at first, wait a few seconds and reload the browser. It can take a moment for the tunnel and portal to become ready.
 
 That’s all most users need.
 
