@@ -10,12 +10,11 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, jo
   # tmux new -s slurm_portal
   ./run_dashboard.sh          # auto-picks a free port in 8501–8510
   ```
-
 - **2. From your laptop: open a tunnel to the SWC login node**
   ```bash
-  ssh -L 8501:localhost:8501 <user>@ssh.swc.ucl.ac.uk
+  # -N = no remote command (just keep the tunnel open)
+  ssh -N -L 8501:localhost:8501 <user>@ssh.swc.ucl.ac.uk
   ```
-
 - **3. On your laptop: view in the browser**
   - Open `http://localhost:8501` (or the port printed by `run_dashboard.sh`).
 
@@ -26,7 +25,6 @@ That’s all most users need.
 - **Where the app runs**
   - At SWC, the portal typically runs **on the login node inside a tmux session**, so it survives SSH disconnects.
   - You can also run it on a compute node or as a Slurm job if you prefer.
-
 - **Ports**
   ```bash
   # Let the script choose the first free port in 8501–8510:
@@ -37,12 +35,10 @@ That’s all most users need.
   # then tunnel with: ssh -L 8765:localhost:8765 <user>@ssh.swc.ucl.ac.uk
   # and open http://localhost:8765
   ```
-
 - **Direct Streamlit invocation**
   ```bash
   streamlit run slurm_portal.py --server.port 8501 --server.address 0.0.0.0
   ```
-
 - **Other SSH setups**
   - **Login node → compute node**: if the app runs on a compute node only reachable via a login node, you can:
     ```bash
