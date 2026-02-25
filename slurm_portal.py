@@ -690,7 +690,7 @@ if page == "Overview":
         )
 
     st.markdown(
-        '<p class="section-title">LIVE SUMMARY</p>', unsafe_allow_html=True
+        '<p class="section-title">SUMMARY</p>', unsafe_allow_html=True
     )
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("TOTAL jobs", total_jobs)
