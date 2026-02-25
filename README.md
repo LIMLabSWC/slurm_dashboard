@@ -41,8 +41,7 @@ That’s all most users need.
 ## Details
 
 - **Where the app runs**
-  - At SWC, the portal typically runs **on an HPC login node (e.g. `hpc-gw2`) inside a tmux session**, so it survives SSH disconnects.
-  - You can also run it on a compute node if you prefer.
+  - At SWC, the portal runs **on an HPC login node (e.g. `hpc-gw2`) inside a tmux session**, so it survives SSH disconnects.
 - **Ports**
   ```bash
   # Let the script choose the first free port in 8501–8510:
@@ -58,11 +57,6 @@ That’s all most users need.
   streamlit run slurm_portal.py --server.port 8501 --server.address 0.0.0.0
   ```
 - **Other SSH setups**
-  - **Login node → compute node**: if the app runs on a compute node only reachable via a login node, you can:
-    ```bash
-    ssh -L 8501:<compute-node>:8501 <user>@<login-node>
-    ```
-    then open `http://localhost:8501` in your browser.
   - **Jump host example (SWC ssh.swc.ucl.ac.uk → sgw2)**:
     ```bash
     ssh -J <user>@ssh.swc.ucl.ac.uk \
