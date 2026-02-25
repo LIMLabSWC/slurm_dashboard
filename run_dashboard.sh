@@ -5,11 +5,6 @@
 #   ./run_dashboard.sh              # pick first free port in 8501–8510
 #   ./run_dashboard.sh 8765        # explicit custom port
 #
-# For SSH tunnel from your laptop:
-#   ssh -L 8501:localhost:8501 user@login-node
-#   then on login node: ./run_dashboard.sh
-#   then open http://localhost:8501 in your browser.
-
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -36,7 +31,28 @@ PY
   )"
 fi
 
-echo "Starting SWC Slurm Portal on port ${PORT}"
+HOSTNAME="$(hostname)"
+USER_NAME="${USER}"
+LOCAL_PORT="${PORT}"  # default: use same port locally; change if busy on your laptop
+
+echo "============================================================"
+echo " SWC Slurm Portal is starting"
+echo "============================================================"
+echo "Host (this node):   ${USER_NAME}@${HOSTNAME}"
+echo "Portal port:        ${PORT}"
+echo
+echo "From your LAPTOP, run this in a NEW terminal:"
+echo
+echo "  ssh -J ${USER_NAME}@ssh.swc.ucl.ac.uk ${USER_NAME}@${HOSTNAME} -N -L ${LOCAL_PORT}:127.0.0.1:${PORT}"
+echo
+echo "If ${LOCAL_PORT} is already in use on your laptop, change the first number"
+echo "in the -L argument (before the colon) and use that instead below."
+echo
+echo "Then in your browser, open:"
+echo
+echo "  http://localhost:${LOCAL_PORT}"
+echo "============================================================"
+echo
 exec streamlit run slurm_portal.py \
   --server.port "$PORT" \
   --server.address 0.0.0.0 \

@@ -4,26 +4,39 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, jo
 
 ## Quick start (SWC)
 
-- **1. On the SWC login node: start the portal (tmux optional but recommended)**
+- **0. (Once) Clone the repo and create a micromamba env**
   ```bash
+  # in the directory where you want the repo:
+  git clone git@github.com:LIMLabSWC/slurm_dashboard.git
+  cd slurm_dashboard
+  micromamba create -n swc-slurm-portal python=3.11 pip -y
+  micromamba activate swc-slurm-portal
+  pip install -r requirements.txt
+  ```
+
+- **1. On the HPC login node (e.g. `hpc-gw2`): start the portal (tmux optional but recommended)**
+  ```bash
+  ssh -J <user>@ssh.swc.ucl.ac.uk <user>@hpc-gw2
+  cd /path/to/your/slurm_dashboard
+  micromamba activate swc-slurm-portal
   # optionally use tmux so it survives disconnects:
   # tmux new -s slurm_portal
-  ./run_dashboard.sh          # auto-picks a free port in 8501–8510
+  ./run_dashboard.sh            # script prints the chosen PORT and SSH tunnel command
   ```
-- **2. From your laptop: open a tunnel to the SWC login node**
-  ```bash
-  # -N = no remote command (just keep the tunnel open)
-  ssh -N -L 8501:localhost:8501 <user>@ssh.swc.ucl.ac.uk
-  ```
+
+- **2. From your laptop: open a tunnel to the HPC login node**
+  - Copy the `ssh -N -J ... -L ...` command printed by `run_dashboard.sh` and run it in a terminal on your laptop.
+
 - **3. On your laptop: view in the browser**
-  - Open `http://localhost:8501` (or the port printed by `run_dashboard.sh`).
+  - Open `http://localhost:<LOCAL_PORT>` where `<LOCAL_PORT>` is the first number
+    in the `-L <LOCAL_PORT>:127.0.0.1:<PORT>` part of the printed SSH command.
 
 That’s all most users need.
 
 ## Details
 
 - **Where the app runs**
-  - At SWC, the portal typically runs **on the login node inside a tmux session**, so it survives SSH disconnects.
+  - At SWC, the portal typically runs **on an HPC login node (e.g. `hpc-gw2`) inside a tmux session**, so it survives SSH disconnects.
   - You can also run it on a compute node or as a Slurm job if you prefer.
 - **Ports**
   ```bash
