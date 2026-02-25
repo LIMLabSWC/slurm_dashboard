@@ -4,23 +4,28 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, jo
 
 ## Quick start (SWC)
 
-- **0. (Once) Clone the repo and create a micromamba env**
+### Setup (do once)
+
+- **1. Clone the repo on HPC login node (`hpc-gw2`)**
   ```bash
-  # in the directory where you want the repo:
   git clone git@github.com:LIMLabSWC/slurm_dashboard.git
   cd slurm_dashboard
+  ```
+
+- **2. Create a micromamba env and install requirements**
+  ```bash
   micromamba create -n swc-slurm-portal python=3.11 pip -y
   micromamba activate swc-slurm-portal
   pip install -r requirements.txt
   ```
 
+### Usage
+
 - **1. On the HPC login node (e.g. `hpc-gw2`): start the portal (tmux optional but recommended)**
   ```bash
-  ssh -J <user>@ssh.swc.ucl.ac.uk <user>@hpc-gw2
-  cd /path/to/your/slurm_dashboard
+  tmux new -s slurm_portal
+  cd slurm_dashboard
   micromamba activate swc-slurm-portal
-  # optionally use tmux so it survives disconnects:
-  # tmux new -s slurm_portal
   ./run_dashboard.sh            # script prints the chosen PORT and SSH tunnel command
   ```
 
