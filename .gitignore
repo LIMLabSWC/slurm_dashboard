@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.Python
+env/
+venv/
+.venv/
+
+# Streamlit / local state
+.streamlit/
+
+# Slurm logs from dashboard job
+slurm_portal_*.out
+
+# OS / editor files
+.DS_Store
+*.swp
+*.swo
