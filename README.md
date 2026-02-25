@@ -54,7 +54,6 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
   > **Note:**
   >If the page is blank at first, wait a few seconds and reload the browser. It can take a moment for the tunnel and portal to become ready.
 
-That’s all most users need.
 
 ## Advanced / Troubleshooting
 
