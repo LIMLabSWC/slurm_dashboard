@@ -21,7 +21,9 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
 
 ### Usage
 
-- **1. On the HPC login node (e.g. `hpc-gw2`): start the portal (tmux optional but recommended)**
+- **1. Start the portal (tmux optional but recommended)**
+  - First, SSH to the login node (for example, `hpc-gw2`).
+  - Run these commands:
   ```bash
   tmux new -s slurm_portal
   cd slurm_dashboard
@@ -31,16 +33,18 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
 
 - **2. From your laptop: open a tunnel to the HPC login node**
   - Copy the `ssh -N -J ... -L ...` command printed by `run_dashboard.sh` and run it in a terminal on your laptop.
+  - Keep this tunnel terminal open while you use the dashboard.
 
 - **3. On your laptop: view in the browser**
-  - Open `http://localhost:<LOCAL_PORT>` where `<LOCAL_PORT>` is the first number
-    in the `-L <LOCAL_PORT>:127.0.0.1:<PORT>` part of the printed SSH command.
-    
+  - Open the `http://localhost:...` URL printed by `run_dashboard.sh`.
+  - If needed, `<LOCAL_PORT>` is the first number in
+    `-L <LOCAL_PORT>:127.0.0.1:<PORT>`.
+
     > **Note:** If the page is blank at first, wait a few seconds and reload the browser. It can take a moment for the tunnel and portal to become ready.
 
 That’s all most users need.
 
-## Details
+## Advanced / Troubleshooting
 
 - **Where the app runs**
   - At SWC, the portal runs **on an HPC login node (e.g. `hpc-gw2`) inside a tmux session**, so it survives SSH disconnects.
@@ -54,7 +58,7 @@ That’s all most users need.
   # then tunnel with: ssh -L 8765:localhost:8765 <user>@ssh.swc.ucl.ac.uk
   # and open http://localhost:8765
   ```
-- **Direct Streamlit invocation**
+- **Direct Streamlit invocation (advanced)**
   ```bash
   streamlit run slurm_portal.py --server.port 8501 --server.address 0.0.0.0
   ```
