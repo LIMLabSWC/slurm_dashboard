@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --output=slurm_portal_%j.out
 
-# Optional: run Viktor's Slurm Portal as a job so you don't need an interactive session.
+# Optional: run the SWC Slurm Portal as a job so you don't need an interactive session.
 # After the job starts, note the node name and tunnel to it, e.g.:
 #   ssh -L 8501:<NODE>:8501 <user>@<login-node>
 # Then open http://localhost:8501 on your machine.

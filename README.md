@@ -1,4 +1,4 @@
-## Viktor's Slurm Portal
+## SWC Slurm Portal
 
 Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, job inspector (`scontrol show job`), and **sbatch/salloc command builders** (copy‑paste only; the app never submits or cancels jobs).
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Viktor's Slurm Portal (Streamlit) safely for local or tunnel use.
+# Start the SWC Slurm Portal (Streamlit) safely for local or tunnel use.
 #
 # Usage:
 #   ./run_dashboard.sh              # default: port 8501, bind to 0.0.0.0 for tunneling

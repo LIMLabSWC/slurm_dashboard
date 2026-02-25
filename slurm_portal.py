@@ -1,5 +1,5 @@
 """
-Viktor's Slurm Portal — Streamlit app for monitoring SLURM jobs.
+SWC Slurm Portal — Streamlit app for monitoring SLURM jobs.
 
 Features:
 - Overview: live queue summary, jobs by name, historic failures (with richer sacct fields).
@@ -25,7 +25,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="Viktor's Slurm Portal",
+    page_title="SWC Slurm Portal",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -252,7 +252,7 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(
             columns=[
-                "Name", "RUN", "WAIT", "DONE", "FAIL", "TOTAL",
+                "Name", "SampleJobID", "RUN", "WAIT", "DONE", "FAIL", "TOTAL",
                 "ELAPSED", "Status", "NodeReason",
             ]
         )
@@ -263,6 +263,7 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
         states = group["State"].tolist()
         reasons = group["Reason"].fillna("").tolist()
         times = group["Time"].fillna("").tolist()
+        job_ids = group["JobID"].astype(str).tolist()
         run = sum(s == "RUNNING" for s in states)
         wait = sum(s == "PENDING" for s in states)
         done = sum(s == "COMPLETED" for s in states)
@@ -270,14 +271,19 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
         total = len(group)
         elapsed = "-"
         node_reason = ""
+        sample_job_id = ""
         for i, s in enumerate(states):
             if s == "RUNNING":
                 if times[i]:
                     elapsed = times[i]
                 node_reason = reasons[i] if i < len(reasons) else ""
+                sample_job_id = job_ids[i] if i < len(job_ids) else ""
                 break
         if not node_reason and reasons:
             node_reason = next((r for r in reasons if r), "")
+        if not sample_job_id and job_ids:
+            # Fall back to the last job in the group if none are RUNNING.
+            sample_job_id = job_ids[-1]
         has_dep_never = any("DependencyNeverSatisfied" in r for r in reasons)
         has_dep = any("Dependency" in r for r in reasons)
         if fail > 0:
@@ -296,6 +302,7 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
             status = "UNKNOWN"
         rows.append({
             "Name": name,
+            "SampleJobID": sample_job_id,
             "RUN": run,
             "WAIT": wait,
             "DONE": done,
@@ -447,7 +454,7 @@ now_utc = datetime.now(timezone.utc).strftime("%a %d %b %H:%M:%S UTC %Y")
 # --------------- Page: Overview ---------------
 
 if page == "Overview":
-    st.title("Viktor's Slurm Portal")
+    st.title("SWC Slurm Portal")
     st.markdown(
         f'<p class="dashboard-meta">User: {selected_user} &nbsp;·&nbsp; {now_utc}</p>',
         unsafe_allow_html=True,
@@ -478,17 +485,19 @@ if page == "Overview":
     else:
         with st.expander("How to read this", expanded=False):
             st.markdown(
-                "- Rows grouped by **JOB NAME**. RUN/WAIT/DONE/FAIL/TOTAL = counts. "
+                "- Rows grouped by **JOB NAME**. `SAMPLE JOB ID` = one representative job ID for that name "
+                "(prefers a RUNNING job if present). RUN/WAIT/DONE/FAIL/TOTAL = counts. "
                 "ELAPSED = time for a RUNNING task. STATUS = summary from SLURM."
             )
         st.markdown('<p class="section-title">JOBS BY NAME</p>', unsafe_allow_html=True)
         df_by_name = get_live_by_name(df)
         display_cols = [
-            "Name", "RUN", "WAIT", "DONE", "FAIL", "TOTAL",
+            "Name", "SampleJobID", "RUN", "WAIT", "DONE", "FAIL", "TOTAL",
             "ELAPSED", "Status", "NodeReason",
         ]
         df_display = df_by_name[display_cols].rename(columns={
             "Name": "JOB NAME",
+            "SampleJobID": "SAMPLE JOB ID",
             "Status": "STATUS (summary)",
             "NodeReason": "NODE / REASON",
         })
