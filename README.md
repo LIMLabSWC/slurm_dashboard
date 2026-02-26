@@ -2,7 +2,7 @@
 
 Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, and a job inspector (`scontrol show job`). The app is **read‑only** and never submits or cancels jobs.
 
-![SWC Slurm Dashboard demo](screenshots/swc-slurm-portal.gif)
+![SWC Slurm Dashboard demo](screenshots/swc-slurm-dashboard.gif)
 
 > **Note:** 
 > This project was built with a lot of AI assistance. Feedback, bug reports, and improvement suggestions are very welcome.
