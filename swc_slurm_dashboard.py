@@ -38,15 +38,18 @@ Outputs:
     - Interactive web UI rendered by Streamlit.
     - Tabular summaries of live queue and historic failures.
 """
+# ------------------------------------------------------------------------------
+# Module layout 
+# MAIN = core workflow sections: read data → shape data → show data
+# ------------------------------------------------------------------------------
 
-# Module layout (top to bottom)
 #  1. Styles & layout
 #  2. Shell helpers
-#  3. Slurm parsers
+#  3. MAIN: Slurm parsers (read data)
 #  4. Cached wrappers
-#  5. Summaries / aggregations
-#  6. Sidebar (user + page + refresh)
-#  7. Pages (Overview, Job inspector)
+#  5. MAIN: Summaries / aggregations (shape data)
+#  6. MAIN: Sidebar (show data)
+#  7. MAIN: Pages (show data)
 
 from __future__ import annotations
 
@@ -66,9 +69,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
 # Styles & layout (CSS, page config)
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
 st.markdown(
     """
     <style>
@@ -87,9 +90,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
 # Shell helpers (sh, safe_sh)
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
 
 
 def sh(cmd: str) -> str:
@@ -127,9 +130,9 @@ def safe_sh(cmd: str) -> str:
         return e.output or str(e)
 
 
-# ----------------------------------------------
-# Slurm parsers (squeue / sacct)
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
+# MAIN: Slurm parsers (read data from Slurm into DataFrames)
+# ------------------------------------------------------------------------------
 
 SQUEUE_COLUMNS = ["JobID", "State", "Name", "Time", "Reason", "Dependency"]
 SACCT_BASE_COLUMNS = [
@@ -389,9 +392,9 @@ def scontrol_show_job(job_id: str) -> str:
     return out.strip() or "No output."
 
 
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
 # Cached wrappers (get_* helpers)
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
 
 
 @st.cache_data(ttl=300)
@@ -425,9 +428,9 @@ def get_scontrol_job(job_id: str) -> str:
     return scontrol_show_job(job_id)
 
 
-# ----------------------------------------------
-# Summaries / aggregations (by name)
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
+# MAIN: Summaries / aggregations (shape data for display)
+# ------------------------------------------------------------------------------
 
 
 def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
@@ -639,9 +642,9 @@ else:
         st.caption(f"Elapsed since refresh: {hours:02}:{mins:02}:{secs:02}")
 
 
-# ----------------------------------------------
-# Sidebar (user, page, manual refresh)
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
+# MAIN: Sidebar (user, page, manual refresh)
+# ------------------------------------------------------------------------------
 
 default_user = os.environ.get("USER", "unknown")
 all_users = get_squeue_users()
@@ -679,9 +682,9 @@ with st.sidebar:
 
 now_utc = datetime.now(timezone.utc).strftime("%a %d %b %H:%M:%S UTC %Y")
 
-# ----------------------------------------------
-# Page: Overview (live queue summary)
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
+# MAIN: Page: Overview (live queue summary)
+# ------------------------------------------------------------------------------
 
 if page == "Overview":
     st.title("SWC Slurm Dashboard")
@@ -829,9 +832,9 @@ if page == "Overview":
         else:
             st.dataframe(df_fail, use_container_width=True, hide_index=True)
 
-# ----------------------------------------------
-# Page: Job inspector (scontrol show job)
-# ----------------------------------------------
+# ------------------------------------------------------------------------------
+# MAIN: Page: Job inspector (scontrol show job)
+# ------------------------------------------------------------------------------
 
 elif page == "Job inspector":
     st.title("Job inspector")
