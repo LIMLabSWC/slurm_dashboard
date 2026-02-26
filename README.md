@@ -19,8 +19,8 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
 
 - **2. Create a micromamba env and install requirements**
   ```bash
-  micromamba create -n swc-slurm-dashboard python=3.11 pip -y
-  micromamba activate swc-slurm-dashboard
+  micromamba create -n swc-slurm-dashboard-env python=3.11 pip -y
+  micromamba activate swc-slurm-dashboard-env
   pip install -r requirements.txt
   ```
 
@@ -32,7 +32,7 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
   ```bash
   tmux new -s slurm_dashboard
   cd slurm_dashboard
-  micromamba activate swc-slurm-dashboard
+  micromamba activate swc-slurm-dashboard-env
   ./run_dashboard.sh            # script prints the chosen PORT and SSH tunnel command
   ```
 
