@@ -39,6 +39,15 @@ Outputs:
     - Tabular summaries of live queue and historic failures.
 """
 
+# Module layout (top to bottom)
+#  1. Styles & layout
+#  2. Shell helpers
+#  3. Slurm parsers
+#  4. Cached wrappers
+#  5. Summaries / aggregations
+#  6. Sidebar (user + page + refresh)
+#  7. Pages (Overview, Job inspector)
+
 from __future__ import annotations
 
 import json
@@ -57,7 +66,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --------------- Styles ---------------
+# ----------------------------------------------
+# Styles & layout (CSS, page config)
+# ----------------------------------------------
 st.markdown(
     """
     <style>
@@ -76,7 +87,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --------------- Shell helpers ---------------
+# ----------------------------------------------
+# Shell helpers (sh, safe_sh)
+# ----------------------------------------------
 
 
 def sh(cmd: str) -> str:
@@ -114,7 +127,9 @@ def safe_sh(cmd: str) -> str:
         return e.output or str(e)
 
 
-# --------------- SLURM parsers (JSON-first, fallback pipe/parsable2) ---------------
+# ----------------------------------------------
+# Slurm parsers (squeue / sacct)
+# ----------------------------------------------
 
 SQUEUE_COLUMNS = ["JobID", "State", "Name", "Time", "Reason", "Dependency"]
 SACCT_BASE_COLUMNS = [
@@ -374,7 +389,9 @@ def scontrol_show_job(job_id: str) -> str:
     return out.strip() or "No output."
 
 
-# --------------- Cached wrappers ---------------
+# ----------------------------------------------
+# Cached wrappers (get_* helpers)
+# ----------------------------------------------
 
 
 @st.cache_data(ttl=300)
@@ -408,7 +425,9 @@ def get_scontrol_job(job_id: str) -> str:
     return scontrol_show_job(job_id)
 
 
-# --------------- Summarisation (from slurm_dashboard) ---------------
+# ----------------------------------------------
+# Summaries / aggregations (by name)
+# ----------------------------------------------
 
 
 def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
@@ -620,7 +639,9 @@ else:
         st.caption(f"Elapsed since refresh: {hours:02}:{mins:02}:{secs:02}")
 
 
-# --------------- Sidebar: user + page ---------------
+# ----------------------------------------------
+# Sidebar (user, page, manual refresh)
+# ----------------------------------------------
 
 default_user = os.environ.get("USER", "unknown")
 all_users = get_squeue_users()
@@ -658,7 +679,9 @@ with st.sidebar:
 
 now_utc = datetime.now(timezone.utc).strftime("%a %d %b %H:%M:%S UTC %Y")
 
-# --------------- Page: Overview ---------------
+# ----------------------------------------------
+# Page: Overview (live queue summary)
+# ----------------------------------------------
 
 if page == "Overview":
     st.title("SWC Slurm Dashboard")
@@ -806,7 +829,9 @@ if page == "Overview":
         else:
             st.dataframe(df_fail, use_container_width=True, hide_index=True)
 
-# --------------- Page: Job inspector ---------------
+# ----------------------------------------------
+# Page: Job inspector (scontrol show job)
+# ----------------------------------------------
 
 elif page == "Job inspector":
     st.title("Job inspector")
@@ -839,5 +864,3 @@ elif page == "Job inspector":
         st.code(out, language="text")
     else:
         st.info("Enter a job ID or pick one from the queue.")
-
-# ---------------
