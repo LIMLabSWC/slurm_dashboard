@@ -71,15 +71,6 @@ st.markdown(
     .health-ok { color: #22c55e; }
     .health-warn { color: #f97316; }
     .dashboard-meta { font-size: 0.875rem; color: var(--text-color); opacity: 0.75; margin-top: -0.5rem; margin-bottom: 1.5rem; }
-    /* Use a subtle neutral focus ring instead of error-red outlines. */
-    .stTextInput input:focus,
-    .stNumberInput input:focus,
-    .stTextArea textarea:focus,
-    .stSelectbox [data-baseweb="select"] > div:focus-within {
-        outline: none !important;
-        border-color: rgba(148, 163, 184, 0.65) !important;
-        box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.45) !important;
-    }
     </style>
     """,
     unsafe_allow_html=True,
