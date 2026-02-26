@@ -1,8 +1,8 @@
-## SWC Slurm Portal
+## SWC Slurm Dashboard
 
 Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, and a job inspector (`scontrol show job`). The app is **read‑only** and never submits or cancels jobs.
 
-![SWC Slurm Portal demo](screenshots/swc-slurm-portal.gif)
+![SWC Slurm Dashboard demo](screenshots/swc-slurm-portal.gif)
 
 > **Note:** 
 > This project was built with a lot of AI assistance. Feedback, bug reports, and improvement suggestions are very welcome.
@@ -19,8 +19,8 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
 
 - **2. Create a micromamba env and install requirements**
   ```bash
-  micromamba create -n swc-slurm-portal python=3.11 pip -y
-  micromamba activate swc-slurm-portal
+  micromamba create -n swc-slurm-dashboard python=3.11 pip -y
+  micromamba activate swc-slurm-dashboard
   pip install -r requirements.txt
   ```
 
@@ -30,12 +30,9 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
   - First, SSH to the login node (for example, `hpc-gw2`).
   - Run these commands:
   ```bash
-  tmux new -s slurm_portal
-  ```
-
-  ```bash
+  tmux new -s slurm_dashboard
   cd slurm_dashboard
-  micromamba activate swc-slurm-portal
+  micromamba activate swc-slurm-dashboard
   ./run_dashboard.sh            # script prints the chosen PORT and SSH tunnel command
   ```
 
@@ -71,7 +68,7 @@ Streamlit dashboard for monitoring SLURM jobs: live queue, historic failures, an
   ```
 - **Direct Streamlit invocation (advanced)**
   ```bash
-  streamlit run slurm_portal.py --server.port 8501 --server.address 0.0.0.0
+  streamlit run swc_slurm_dashboard.py --server.port 8501 --server.address 0.0.0.0
   ```
 - **Other SSH setups**
   - **Jump host example (SWC ssh.swc.ucl.ac.uk → sgw2)**:

@@ -1,6 +1,6 @@
 """
 Purpose:
-    SWC Slurm Portal — Streamlit dashboard for monitoring SLURM jobs.
+    SWC Slurm Dashboard — Streamlit dashboard for monitoring SLURM jobs.
 
 Execution Flow:
     (Streamlit entrypoint)
@@ -52,7 +52,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="SWC Slurm Portal",
+    page_title="SWC Slurm Dashboard",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -670,7 +670,7 @@ now_utc = datetime.now(timezone.utc).strftime("%a %d %b %H:%M:%S UTC %Y")
 # --------------- Page: Overview ---------------
 
 if page == "Overview":
-    st.title("SWC Slurm Portal")
+    st.title("SWC Slurm Dashboard")
     st.markdown(
         f'<p class="dashboard-meta">User: {selected_user} &nbsp;·&nbsp; Last updated: {now_utc}</p>',
         unsafe_allow_html=True,

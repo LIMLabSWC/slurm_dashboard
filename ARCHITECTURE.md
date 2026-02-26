@@ -5,7 +5,7 @@ Slurm, plus a helper script to start it safely on a login node.
 
 ### High-level picture
 
-- **Process**: one Streamlit process running `slurm_portal.py` on an HPC login
+- **Process**: one Streamlit process running `swc_slurm_dashboard.py` on an HPC login
   node (e.g. `hpc-gw2`).
 - **Data source**: read-only Slurm CLI commands (`squeue`, `sacct`,
   `scontrol show job`).
@@ -21,7 +21,7 @@ Users normally:
 
 ```mermaid
 flowchart LR
-    A[Laptop Browser] -->|SSH tunnel| B[Streamlit app: slurm_portal.py]
+    A[Laptop Browser] -->|SSH tunnel| B[Streamlit app: swc_slurm_dashboard.py]
     B --> C[get_squeue / parse_squeue]
     B --> D[get_sacct / parse_sacct]
     B --> E[get_scontrol_job / scontrol_show_job]
@@ -54,16 +54,16 @@ flowchart LR
     `ssh -J <user>@ssh.swc.ucl.ac.uk <user>@<host> -N -L <LOCAL_PORT>:127.0.0.1:<PORT>`
   - The browser URL to open: `http://localhost:<LOCAL_PORT>`.
 - Runs:
-  - `streamlit run slurm_portal.py --server.port "$PORT" --server.address 0.0.0.0`
+  - `streamlit run swc_slurm_dashboard.py --server.port "$PORT" --server.address 0.0.0.0`
 
 This script encodes the “official” way to start the portal and is the only
 place you should need to touch for port / tunnelling conventions.
 
 ---
 
-### 2. Streamlit app: `slurm_portal.py`
+### 2. Streamlit app: `swc_slurm_dashboard.py`
 
-`slurm_portal.py` is structured into clear sections (in order):
+`swc_slurm_dashboard.py` is structured into clear sections (in order):
 
 1. **Styles and page config**
 2. **Shell helpers**
@@ -76,7 +76,7 @@ place you should need to touch for port / tunnelling conventions.
 #### 2.1 Styles & layout
 
 - `st.set_page_config(...)`:
-  - Title: `SWC Slurm Portal`.
+  - Title: `SWC Slurm Dashboard`.
   - Layout: wide; expanded sidebar.
 - CSS injected via `st.markdown(..., unsafe_allow_html=True)`:
   - Section title color and typography.
@@ -200,7 +200,7 @@ Rendered when `page == "Overview"`.
 
 **Header + meta**
 
-- Title: `SWC Slurm Portal`.
+- Title: `SWC Slurm Dashboard`.
 - Meta line: `User: <user> · Last updated: <UTC timestamp>`.
 
 **Live summary**

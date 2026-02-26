@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the SWC Slurm Portal (Streamlit) safely for local or tunnel use.
+# Start the SWC Slurm Dashboard (Streamlit) safely for local or tunnel use.
 #
 # Usage:
 #   ./run_dashboard.sh              # pick first free port in 8501–8510
@@ -36,7 +36,7 @@ USER_NAME="${USER}"
 LOCAL_PORT="${PORT}"  # default: use same port locally; change if busy on your laptop
 
 echo "============================================================"
-echo " SWC Slurm Portal is starting"
+echo " SWC Slurm Dashboard is starting"
 echo "============================================================"
 echo "Host (this node):   ${USER_NAME}@${HOSTNAME}"
 echo "Portal port:        ${PORT}"
@@ -53,7 +53,7 @@ echo
 echo "  http://localhost:${LOCAL_PORT}"
 echo "============================================================"
 echo
-exec streamlit run slurm_portal.py \
+exec streamlit run swc_slurm_dashboard.py \
   --server.port "$PORT" \
   --server.address 0.0.0.0 \
   --browser.gatherUsageStats false
