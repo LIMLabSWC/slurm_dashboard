@@ -901,38 +901,38 @@ with tab_overview:
 
     history_start, history_since_label = derive_history_start_from_squeue(df)
     dfh_window = get_sacct(selected_user, history_start)
+
+    # ---------------- FINISHED JOBS: related vs other ----------------
+    st.markdown(
+        f'<p class="section-title">FINISHED JOBS (since: {history_since_label})</p>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("How to read this", expanded=False):
+        st.markdown(
+            "- Shows jobs where `State` is `COMPLETED` and `ExitCode` "
+            "starts with `0:` (successful exits) for this user.\n"
+            "- The **since** date in the heading is the start of the "
+            "history window, derived from the live queue: it starts roughly "
+            "when your longest-running current job started (based on the "
+            "elapsed time reported by `squeue`), or from the beginning of "
+            "today (UTC) if nothing is running.\n"
+            "- The **related** table lists finished jobs whose **array job "
+            "ID** matches an array that currently has at least one RUNNING "
+            "job in the queue; the **other** table lists all remaining "
+            "finished jobs in this time window.\n"
+            "- Each table is flat (one row per JobID), so you can sort and "
+            "search directly without extra nesting."
+        )
+
     if dfh_window.empty:
         st.info(
             f"No sacct data (or sacct not available) since: {history_since_label}."
         )
     else:
-
-        # ---------------- FINISHED JOBS: related vs other ----------------
         success_mask = dfh_window["State"].str.contains(
             "COMPLETED", case=False, na=False
         ) & dfh_window["ExitCode"].str.startswith("0:", na=False)
         df_success_all = dfh_window[success_mask].copy()
-
-        st.markdown(
-            f'<p class="section-title">FINISHED JOBS (since: {history_since_label})</p>',
-            unsafe_allow_html=True,
-        )
-        with st.expander("How to read this", expanded=False):
-            st.markdown(
-                "- Shows jobs where `State` is `COMPLETED` and `ExitCode` "
-                "starts with `0:` (successful exits) for this user.\n"
-                "- The **since** date in the heading is the start of the "
-                "history window, derived from the live queue: it starts roughly "
-                "when your longest-running current job started (based on the "
-                "elapsed time reported by `squeue`), or from the beginning of "
-                "today (UTC) if nothing is running.\n"
-                "- The **related** table lists finished jobs whose **array job "
-                "ID** matches an array that currently has at least one RUNNING "
-                "job in the queue; the **other** table lists all remaining "
-                "finished jobs in this time window.\n"
-                "- Each table is flat (one row per JobID), so you can sort and "
-                "search directly without extra nesting."
-            )
 
         if df_success_all.empty:
             st.info(
@@ -991,30 +991,33 @@ with tab_overview:
             )
             _render_finished_block("Other finished jobs", df_success_other)
 
-        # ---------------- FAILURES: related vs other ----------------
-        df_fail_all = get_failures_by_name(dfh_window)
+    # ---------------- FAILURES: related vs other ----------------
+    st.markdown(
+        f'<p class="section-title">FAILURES (since: {history_since_label})</p>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("How to read this", expanded=False):
         st.markdown(
-            f'<p class="section-title">FAILURES (since: {history_since_label})</p>',
-            unsafe_allow_html=True,
+            "- Includes jobs in these states: `FAILED`, `CANCELLED`, "
+            "`TIMEOUT`, `OUT_OF_MEMORY`, or any job with a non-zero "
+            "`ExitCode` for this user.\n"
+            "- The **since** date in the heading is the same as for "
+            "`FINISHED JOBS` above.\n"
+            "- The **related** table shows failures whose `JobName` "
+            "currently has at least one RUNNING job in the queue; the "
+            "**other** table shows all remaining failures in this time "
+            "window.\n"
+            "- Each row is grouped by `JobName` and includes counts and "
+            "the most recent failing `JobID` with its exit code and "
+            "resource usage."
         )
-        with st.expander("How to read this", expanded=False):
-            st.markdown(
-                "- Includes jobs in these states: `FAILED`, `CANCELLED`, "
-                "`TIMEOUT`, `OUT_OF_MEMORY`, or any job with a non-zero "
-                "`ExitCode` for this user.\n"
-                "- The **since** date in the heading is the start of the "
-                "history window: it is the earliest `Submit` time among your "
-                "currently running jobs when available, or the beginning of "
-                "available accounting history otherwise.\n"
-                "- The **related** table shows failures whose `JobName` "
-                "currently has at least one RUNNING job in the queue; the "
-                "**other** table shows all remaining failures in this time "
-                "window.\n"
-                "- Each row is grouped by `JobName` and includes counts and "
-                "the most recent failing `JobID` with its exit code and "
-                "resource usage."
-            )
 
+    if dfh_window.empty:
+        st.info(
+            f"No sacct data (or sacct not available) since: {history_since_label}."
+        )
+    else:
+        df_fail_all = get_failures_by_name(dfh_window)
         if df_fail_all.empty:
             st.info(f"No failures found since: {history_since_label}.")
         else:
