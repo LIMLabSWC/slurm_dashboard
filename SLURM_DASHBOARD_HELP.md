@@ -1,6 +1,3 @@
-## SWC Slurm Dashboard – How jobs are organised
-
-
 ### 1. SLURM basics: jobs, arrays, job names
 
 - A normal job submitted with:
@@ -50,7 +47,7 @@ the failures summary), it uses this **job name** label, not the script
 filename directly, even though the default job name is often the script
 filename.
 
-#### 1.2 Relationship diagram (text view)
+#### 1.2 Relationship diagram
 
 ```text
 [You submit]
