@@ -17,12 +17,9 @@ Execution Flow:
       ├── summaries / helpers
       │     ├── summarise_live_by_name()
       │     └── summarise_failures_by_name()
-      └── pages (selected via `page` in sidebar)
-            ├── "Overview"
-            │     └── get_squeue() → get_live_by_name()
-            │         get_sacct()  → get_failures_by_name()
-            └── "Job inspector"
-                  └── get_squeue(), get_scontrol_job()
+      └── main UI
+            ├── sidebar (user selection + manual refresh)
+            └── tabs (Overview, Job inspector, Help)
 
 Side Effects:
     - Runs read-only SLURM commands: squeue, sacct, scontrol.
@@ -48,8 +45,8 @@ Outputs:
 #  3. MAIN: Slurm parsers (read data)
 #  4. Cached wrappers
 #  5. MAIN: Summaries / aggregations (shape data)
-#  6. MAIN: Sidebar (show data)
-#  7. MAIN: Pages (show data)
+#  6. MAIN: Sidebar (user + refresh controls)
+#  7. MAIN: Tabs (Overview, Job inspector, Help)
 
 from __future__ import annotations
 
@@ -136,6 +133,7 @@ def safe_sh(cmd: str) -> str:
 # ------------------------------------------------------------------------------
 
 SQUEUE_COLUMNS = ["JobID", "State", "Name", "Time", "Reason", "Dependency"]
+
 SACCT_BASE_COLUMNS = [
     "JobID",
     "JobName",
@@ -151,8 +149,10 @@ SACCT_EXTRA_COLUMNS = [
     "CPUTime",
     "WorkDir",
     "SubmitLine",
+    "Submit",
 ]
 SACCT_ALL_COLUMNS = SACCT_BASE_COLUMNS + SACCT_EXTRA_COLUMNS
+SACCT_HISTORY_START_FOR_FINISHED = "1970-01-01"
 
 
 def _squeue_from_json(out: str, user: str) -> Optional[pd.DataFrame]:
@@ -283,6 +283,7 @@ def _sacct_from_json(out: str) -> Optional[pd.DataFrame]:
                 g("cpu_time", "cputime", "CPUTime"),
                 g("work_dir", "workdir", "WorkDir"),
                 g("submit_line", "SubmitLine"),
+                g("submit", "Submit"),
             )
             rows.append(row)
         return pd.DataFrame(rows, columns=SACCT_ALL_COLUMNS)
@@ -319,7 +320,7 @@ def parse_sacct(user: str, start: str) -> pd.DataFrame:
             return df
     fmt = (
         "JobID,JobName,State,ExitCode,Elapsed,NodeList,MaxRSS,"
-        "ReqMem,Timelimit,CPUTime,WorkDir,SubmitLine"
+        "ReqMem,Timelimit,CPUTime,WorkDir,SubmitLine,Submit"
     )
     cmd = (
         f"sacct -u {user} --starttime {start} "
@@ -460,8 +461,6 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
                 "SampleJobID",
                 "RUN",
                 "WAIT",
-                "DONE",
-                "FAIL",
                 "TOTAL",
                 "ELAPSED",
                 "Status",
@@ -478,7 +477,6 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
         job_ids = group["JobID"].astype(str).tolist()
         run = sum(s == "RUNNING" for s in states)
         wait = sum(s == "PENDING" for s in states)
-        done = sum(s == "COMPLETED" for s in states)
         fail = sum(any(fs in s for fs in failed_states) for s in states)
         total = len(group)
         elapsed = "-"
@@ -508,8 +506,6 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
             status = "WAITING (dependency)"
         elif wait > 0:
             status = "WAITING"
-        elif done > 0:
-            status = "DONE"
         else:
             status = "UNKNOWN"
         rows.append(
@@ -518,8 +514,6 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
                 "SampleJobID": sample_job_id,
                 "RUN": run,
                 "WAIT": wait,
-                "DONE": done,
-                "FAIL": fail,
                 "TOTAL": total,
                 "ELAPSED": elapsed,
                 "Status": status,
@@ -528,6 +522,19 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
         )
     out = pd.DataFrame(rows)
     return out.sort_values("Name").reset_index(drop=True)
+
+
+def _derive_array_or_job_id(job_id: str) -> str:
+    """
+    Derive an array-or-job identifier from a SLURM JobID.
+
+    For array tasks like '12345_3', this returns '12345'.
+    For non-array jobs, this returns the original JobID.
+    """
+    if not isinstance(job_id, str):
+        return ""
+    base = job_id.split("_", 1)[0]
+    return base
 
 
 def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
@@ -563,13 +570,15 @@ def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
                 "MaxRSS",
             ]
         )
-    interesting = dfh[
-        dfh["State"].str.contains(
-            "FAILED|OUT_OF_MEMORY|CANCELLED|TIMEOUT",
-            case=False,
-            na=False,
-        )
-    ].copy()
+    state_failure = dfh["State"].str.contains(
+        "FAILED|OUT_OF_MEMORY|CANCELLED|TIMEOUT",
+        case=False,
+        na=False,
+    )
+    exit_nonzero = dfh["ExitCode"].astype(str).str.len().gt(0) & ~dfh[
+        "ExitCode"
+    ].astype(str).str.startswith("0:", na=False)
+    interesting = dfh[state_failure | exit_nonzero].copy()
     if interesting.empty:
         return pd.DataFrame(
             columns=[
@@ -660,12 +669,6 @@ with st.sidebar:
         options=all_users,
         index=default_index,
     )
-    page = st.radio(
-        "Page",
-        ["Overview", "Job inspector"],
-        index=0,
-        label_visibility="collapsed",
-    )
     if "last_manual_refresh_ts" not in st.session_state:
         st.session_state["last_manual_refresh_ts"] = datetime.now(
             timezone.utc
@@ -684,19 +687,26 @@ with st.sidebar:
 now_utc = datetime.now(timezone.utc).strftime("%a %d %b %H:%M:%S UTC %Y")
 
 # ------------------------------------------------------------------------------
-# MAIN: Page: Overview (live queue summary)
+# MAIN: Pages as tabs (Overview, Job inspector, Help)
 # ------------------------------------------------------------------------------
 
-if page == "Overview":
-    st.title("SWC Slurm Dashboard")
-    st.markdown(
-        f'<p class="dashboard-meta">User: {selected_user} &nbsp;·&nbsp; Last updated: {now_utc}</p>',
-        unsafe_allow_html=True,
-    )
+st.title("SWC Slurm Dashboard")
+st.markdown(
+    f'<p class="dashboard-meta">User: {selected_user} &nbsp;·&nbsp; '
+    f"Last updated: {now_utc}</p>",
+    unsafe_allow_html=True,
+)
 
+tab_overview, tab_inspector, tab_help = st.tabs(
+    ["Overview", "Job inspector", "Help"]
+)
+
+with tab_overview:
     df = get_squeue(selected_user)
     if df.empty:
         total_jobs, running, pending, dep_bad = 0, 0, 0, 0
+        running_names = []
+        running_job_ids: List[str] = []
     else:
         total_jobs = int(len(df))
         running = int((df["State"] == "RUNNING").sum())
@@ -705,6 +715,20 @@ if page == "Overview":
             df["Reason"]
             .str.contains("DependencyNeverSatisfied", na=False)
             .sum()
+        )
+        running_names = (
+            df.loc[df["State"] == "RUNNING", "Name"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        running_job_ids = (
+            df.loc[df["State"] == "RUNNING", "JobID"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
         )
 
     st.markdown(
@@ -729,7 +753,8 @@ if page == "Overview":
         st.info("No jobs in queue.")
     else:
         st.markdown(
-            '<p class="section-title">JOBS BY NAME</p>', unsafe_allow_html=True
+            '<p class="section-title">QUEUED JOBS (by name)</p>',
+            unsafe_allow_html=True,
         )
         with st.expander("How to read this", expanded=False):
             st.markdown(
@@ -737,8 +762,11 @@ if page == "Overview":
                 "all queue entries with that name.\n"
                 "- `SAMPLE JOB ID` is one representative job for that row "
                 "(prefers a RUNNING job when available).\n"
-                "- `RUN`, `WAIT`, `DONE`, `FAIL`, `TOTAL` are counts in that "
-                "group (`TOTAL = RUN + WAIT + DONE + FAIL`).\n"
+                "- `RUN`, `WAIT`, and `TOTAL` are counts in that group (with "
+                "`TOTAL` roughly equal to `RUN + WAIT` for live queue "
+                "states). Finished and failed jobs are primarily surfaced via "
+                "the **Finished jobs** and **Failures** sections below, using "
+                "`sacct`.\n"
                 "- `ELAPSED` shows runtime for a RUNNING task in that group; "
                 "if none are running, it is `-`.\n"
                 "- `STATUS (summary)` is the row-level state used for quick "
@@ -750,10 +778,10 @@ if page == "Overview":
             )
             st.markdown(
                 '<p class="legend">'
-                'Legend: <span class="status-running">RUNNING</span>, '
+                'Legend (STATUS column): '
+                '<span class="status-running">RUNNING</span>, '
                 '<span class="status-waiting">WAITING</span>, '
-                '<span class="status-failed">FAILED</span>, '
-                '<span class="status-done">DONE</span></p>',
+                '<span class="status-failed">FAILED / BLOCKED</span></p>',
                 unsafe_allow_html=True,
             )
         df_by_name = get_live_by_name(df)
@@ -762,8 +790,6 @@ if page == "Overview":
             "SampleJobID",
             "RUN",
             "WAIT",
-            "DONE",
-            "FAIL",
             "TOTAL",
             "ELAPSED",
             "Status",
@@ -787,8 +813,6 @@ if page == "Overview":
                 return "color: #22c55e; font-weight: 500;"
             if "WAITING" in val or "PENDING" in val:
                 return "color: #eab308; font-weight: 500;"
-            if "DONE" in val or "COMPLETED" in val:
-                return "color: #06b6d4; font-weight: 500;"
             return ""
 
         try:
@@ -804,48 +828,180 @@ if page == "Overview":
         except Exception:
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-    st.markdown(
-        '<p class="section-title">HISTORIC FAILURES (today, grouped by job name)</p>',
-        unsafe_allow_html=True,
-    )
-    with st.expander("How to read this", expanded=False):
-        st.markdown(
-            "- Includes jobs from today in these states: `FAILED`, "
-            "`CANCELLED`, `TIMEOUT`, `OUT_OF_MEMORY`.\n"
-            "- Each row is grouped by `JobName`; `Count` is how many times "
-            "that job name failed/cancelled/timed out today.\n"
-            "- `LastJobID`, `LastState`, `LastExitCode`, `LastElapsed`, and "
-            "`LastNode` come from the most recent matching failure.\n"
-            "- `MaxRSS` is the recorded peak memory usage for that last "
-            "failure entry (when available from `sacct`).\n"
-            "- `ReqMem`, `Timelimit`, and `CPUTime` appear when available and "
-            "help compare requested vs observed usage.\n"
-            "- Use this table to spot recurring failing job names and inspect "
-            "the latest failed JobID in the Job inspector."
-        )
-    dfh = get_sacct(selected_user, "today")
-    if dfh.empty:
+    dfh_all = get_sacct(selected_user, SACCT_HISTORY_START_FOR_FINISHED)
+    if dfh_all.empty:
         st.info("No sacct data (or sacct not available).")
     else:
-        df_fail = get_failures_by_name(dfh)
-        if df_fail.empty:
-            st.success("No failures today.")
+        # Derive a dynamic time window based on the earliest submit time
+        # among the currently running jobs (if available), so we focus
+        # history on "this batch" of work.
+        dfh_window = dfh_all
+        history_since_label = "beginning of available history"
+        if running_job_ids and "Submit" in dfh_all.columns:
+            try:
+                dfh_running_ids = dfh_all[
+                    dfh_all["JobID"].astype(str).isin(running_job_ids)
+                ].copy()
+                if not dfh_running_ids.empty:
+                    submit_running = pd.to_datetime(
+                        dfh_running_ids["Submit"], errors="coerce"
+                    )
+                    if submit_running.notna().any():
+                        earliest_submit = submit_running.min()
+                        submit_all = pd.to_datetime(
+                            dfh_all["Submit"], errors="coerce"
+                        )
+                        dfh_window = dfh_all[
+                            submit_all >= earliest_submit
+                        ].copy()
+                        history_since_label = earliest_submit.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+            except Exception:
+                dfh_window = dfh_all
+                history_since_label = "beginning of available history"
+
+        # ---------------- FINISHED JOBS: related vs other ----------------
+        success_mask = dfh_window["State"].str.contains(
+            "COMPLETED", case=False, na=False
+        ) & dfh_window["ExitCode"].str.startswith("0:", na=False)
+        df_success_all = dfh_window[success_mask].copy()
+
+        st.markdown(
+            f'<p class="section-title">FINISHED JOBS (since: {history_since_label})</p>',
+            unsafe_allow_html=True,
+        )
+        with st.expander("How to read this", expanded=False):
+            st.markdown(
+                "- Shows jobs where `State` is `COMPLETED` and `ExitCode` "
+                "starts with `0:` (successful exits) for this user.\n"
+                "- The **since** date in the heading is the start of the "
+                "history window: it is the earliest `Submit` time among your "
+                "currently running jobs when available, or the beginning of "
+                "available accounting history otherwise.\n"
+                "- The **related** table lists finished jobs whose `JobName` "
+                "currently has at least one RUNNING job in the queue; the "
+                "**other** table lists all remaining finished jobs in this "
+                "time window.\n"
+                "- Each table is flat (one row per JobID), so you can sort and "
+                "search directly without extra nesting."
+            )
+
+        if df_success_all.empty:
+            st.info(
+                f"No successfully completed jobs found since: {history_since_label}."
+            )
         else:
-            st.dataframe(df_fail, use_container_width=True, hide_index=True)
+            df_success_all["ArrayOrJobID"] = df_success_all["JobID"].astype(
+                str
+            ).apply(_derive_array_or_job_id)
+            df_success_all["RelatedToRunning"] = (
+                df_success_all["JobName"].isin(running_names)
+                if running_names
+                else False
+            )
 
-# ------------------------------------------------------------------------------
-# MAIN: Page: Job inspector (scontrol show job)
-# ------------------------------------------------------------------------------
+            df_success_related = df_success_all[df_success_all["RelatedToRunning"]]
+            df_success_other = df_success_all[~df_success_all["RelatedToRunning"]]
 
-elif page == "Job inspector":
-    st.title("Job inspector")
+            def _render_finished_block(label: str, df_subset: pd.DataFrame) -> None:
+                st.markdown(f"**{label}**")
+                if df_subset.empty:
+                    st.info("No finished jobs in this category for this window.")
+                    return
+                detail_cols = [
+                    "ArrayOrJobID",
+                    "JobID",
+                    "JobName",
+                    "State",
+                    "ExitCode",
+                    "Elapsed",
+                    "NodeList",
+                ]
+                detail_display = df_subset[detail_cols].rename(
+                    columns={
+                        "ArrayOrJobID": "ARRAY / JOB",
+                        "JobID": "JOB ID",
+                        "JobName": "JOB NAME",
+                        "State": "STATE",
+                        "ExitCode": "EXIT CODE",
+                        "Elapsed": "ELAPSED",
+                        "NodeList": "NODELIST",
+                    }
+                )
+                st.dataframe(
+                    detail_display,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            _render_finished_block(
+                "Related to running job names", df_success_related
+            )
+            _render_finished_block("Other finished jobs", df_success_other)
+
+        # ---------------- FAILURES: related vs other ----------------
+        df_fail_all = get_failures_by_name(dfh_window)
+        st.markdown(
+            f'<p class="section-title">FAILURES (since: {history_since_label})</p>',
+            unsafe_allow_html=True,
+        )
+        with st.expander("How to read this", expanded=False):
+            st.markdown(
+                "- Includes jobs in these states: `FAILED`, `CANCELLED`, "
+                "`TIMEOUT`, `OUT_OF_MEMORY`, or any job with a non-zero "
+                "`ExitCode` for this user.\n"
+                "- The **since** date in the heading is the start of the "
+                "history window: it is the earliest `Submit` time among your "
+                "currently running jobs when available, or the beginning of "
+                "available accounting history otherwise.\n"
+                "- The **related** table shows failures whose `JobName` "
+                "currently has at least one RUNNING job in the queue; the "
+                "**other** table shows all remaining failures in this time "
+                "window.\n"
+                "- Each row is grouped by `JobName` and includes counts and "
+                "the most recent failing `JobID` with its exit code and "
+                "resource usage."
+            )
+
+        if df_fail_all.empty:
+            st.success(f"No failures found since: {history_since_label}.")
+        else:
+            df_fail_all["RelatedToRunning"] = (
+                df_fail_all["JobName"].isin(running_names)
+                if running_names
+                else False
+            )
+            df_fail_related = df_fail_all[df_fail_all["RelatedToRunning"]]
+            df_fail_other = df_fail_all[~df_fail_all["RelatedToRunning"]]
+
+            def _render_fail_block(label: str, df_subset: pd.DataFrame) -> None:
+                st.markdown(f"**{label}**")
+                if df_subset.empty:
+                    st.info("No failures in this category for this window.")
+                    return
+                display = df_subset.rename(
+                    columns={"RelatedToRunning": "RELATED TO RUNNING"}
+                )
+                st.dataframe(
+                    display,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            _render_fail_block(
+                "Related to running job names", df_fail_related
+            )
+            _render_fail_block("Other failures", df_fail_other)
+
+with tab_inspector:
     st.markdown(
-        "<p class='help-text'>Run <code>scontrol show job &lt;JobID&gt;</code> (read-only). "
-        "Enter a job ID or pick one from the queue.</p>",
+        "<p class='help-text'>Run <code>scontrol show job &lt;JobID&gt;</code> "
+        "(read-only). Enter a job ID or pick one from the queue.</p>",
         unsafe_allow_html=True,
     )
-    df = get_squeue(selected_user)
-    job_ids = df["JobID"].tolist() if not df.empty else []
+    df_q = get_squeue(selected_user)
+    job_ids = df_q["JobID"].tolist() if not df_q.empty else []
     col_input, col_pick = st.columns(2)
     with col_input:
         job_id_input = st.text_input(
@@ -868,3 +1024,22 @@ elif page == "Job inspector":
         st.code(out, language="text")
     else:
         st.info("Enter a job ID or pick one from the queue.")
+
+with tab_help:
+    st.markdown(
+        "<p class='help-text'>Overview of SLURM jobs, arrays, job names, and "
+        "how they map to each section of the dashboard.</p>",
+        unsafe_allow_html=True,
+    )
+    help_path = os.path.join(
+        os.path.dirname(__file__), "SLURM_DASHBOARD_HELP.md"
+    )
+    try:
+        with open(help_path, "r", encoding="utf-8") as f:
+            help_md = f.read()
+        st.markdown(help_md)
+    except OSError:
+        st.error(
+            "Help content file `SLURM_DASHBOARD_HELP.md` not found or "
+            "unreadable. Please check the repository."
+        )
