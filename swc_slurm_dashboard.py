@@ -1016,7 +1016,7 @@ with tab_overview:
             )
 
         if df_fail_all.empty:
-            st.success(f"No failures found since: {history_since_label}.")
+            st.info(f"No failures found since: {history_since_label}.")
         else:
             df_fail_all["RelatedToRunning"] = (
                 df_fail_all["JobName"].isin(running_names)
