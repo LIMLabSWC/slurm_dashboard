@@ -116,8 +116,9 @@ Two main families:
   - `parse_sacct(user: str, start: str) -> DataFrame`:
     - Tries `sacct --json` first (`_sacct_from_json`).
     - Falls back to `--parsable2` with a fixed column list.
-    - Returns `SACCT_ALL_COLUMNS` (JobID, JobName, State, ExitCode, Elapsed,
-      NodeList, MaxRSS, ReqMem, Timelimit, CPUTime, WorkDir, SubmitLine).
+    - Returns `SACCT_ALL_COLUMNS`:
+      - `JobID, JobName, State, ExitCode, Elapsed, NodeList, MaxRSS,
+        ReqMem, Timelimit, CPUTime, WorkDir, SubmitLine, Submit, Reason`.
 
 Other helpers:
 
@@ -168,8 +169,8 @@ you ask for it.
     - `Count` = number of failing jobs with that name.
     - `Last*` fields from the most recent failing job (JobID, State,
       ExitCode, Elapsed, Node, MaxRSS, etc.).
-  - Optionally includes `ReqMem`, `Timelimit`, `CPUTime`, `WorkDir` when
-    present.
+  - Optionally includes `ReqMem`, `Timelimit`, `CPUTime`, `WorkDir`,
+    `Reason` when present.
 
 These two summaries are exactly what power the two main tables.
 
