@@ -150,6 +150,7 @@ SACCT_EXTRA_COLUMNS = [
     "WorkDir",
     "SubmitLine",
     "Submit",
+    "Reason",
 ]
 SACCT_ALL_COLUMNS = SACCT_BASE_COLUMNS + SACCT_EXTRA_COLUMNS
 
@@ -283,6 +284,7 @@ def _sacct_from_json(out: str) -> Optional[pd.DataFrame]:
                 g("work_dir", "workdir", "WorkDir"),
                 g("submit_line", "SubmitLine"),
                 g("submit", "Submit"),
+                g("reason", "Reason"),
             )
             rows.append(row)
         return pd.DataFrame(rows, columns=SACCT_ALL_COLUMNS)
@@ -319,7 +321,7 @@ def parse_sacct(user: str, start: str) -> pd.DataFrame:
             return df
     fmt = (
         "JobID,JobName,State,ExitCode,Elapsed,NodeList,MaxRSS,"
-        "ReqMem,Timelimit,CPUTime,WorkDir,SubmitLine,Submit"
+        "ReqMem,Timelimit,CPUTime,WorkDir,SubmitLine,Submit,Reason"
     )
     cmd = (
         f"sacct -u {user} --starttime {start} "
@@ -662,7 +664,7 @@ def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
         )
     extra = [
         c
-        for c in ["ReqMem", "Timelimit", "CPUTime", "WorkDir"]
+        for c in ["ReqMem", "Timelimit", "CPUTime", "WorkDir", "Reason"]
         if c in interesting.columns
     ]
     interesting_sorted = interesting.sort_values("JobID")
@@ -1021,19 +1023,20 @@ with tab_overview:
                 if running_names
                 else False
             )
-            df_fail_related = df_fail_all[df_fail_all["RelatedToRunning"]]
-            df_fail_other = df_fail_all[~df_fail_all["RelatedToRunning"]]
+            df_fail_related = df_fail_all[df_fail_all["RelatedToRunning"]].drop(
+                columns=["RelatedToRunning"], errors="ignore"
+            )
+            df_fail_other = df_fail_all[~df_fail_all["RelatedToRunning"]].drop(
+                columns=["RelatedToRunning"], errors="ignore"
+            )
 
             def _render_fail_block(label: str, df_subset: pd.DataFrame) -> None:
                 st.markdown(f"**{label}**")
                 if df_subset.empty:
                     st.info("No failures in this category for this window.")
                     return
-                display = df_subset.rename(
-                    columns={"RelatedToRunning": "RELATED TO RUNNING"}
-                )
                 st.dataframe(
-                    display,
+                    df_subset,
                     use_container_width=True,
                     hide_index=True,
                 )
