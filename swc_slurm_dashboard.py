@@ -1082,7 +1082,7 @@ with tab_inspector:
 
 HELP_GRAPH_DOT = """
 digraph {
-  rankdir=LR;
+  rankdir=TB;
   fontsize=10;
 
   subgraph cluster_user {
@@ -1127,14 +1127,14 @@ digraph {
   T0 -> S0B [label="steps"];
   T0 -> S0E;
 
-  T0 -> Q [label="live queue"];
-  T1 -> Q;
+ 
+  T3 -> Q [label="waiting"];
 
-  T0 -> F [label="successful"];
+  T1 -> F [label="successful"];
   S0B -> F;
   S0E -> F;
 
-  T1 -> X [label="non-zero exit"];
+  T2 -> X [label="non-zero exit"];
 }
 """
 
