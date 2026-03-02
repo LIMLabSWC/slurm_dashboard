@@ -149,7 +149,9 @@ you ask for it.
   - Groups by `Name`.
   - Computes per-name counts focused on the live queue: RUN, WAIT, TOTAL.
   - Chooses:
-    - `SampleJobID`: prefers a RUNNING job if any, otherwise last job in group.
+    - `SampleJobID`: prefers a RUNNING `JobID` if any (for arrays this is a
+      single job array element such as `12345_0`), otherwise the last job in
+      the group.
     - `ELAPSED`: time for a RUNNING job in the group, or `-`.
     - `NodeReason`: node name or scheduler reason, with a best-effort pick.
   - Derives a **Status** per name:
@@ -237,23 +239,26 @@ When queue isn’t empty:
 - Section title: `FINISHED JOBS (since: <date>)`.
 - `How to read this` expander:
   - Explains:
-    - The **since** date is the start of the history window (earliest `Submit`
-      time among currently running jobs when available, otherwise the start of
-      available history).
-    - Only successful jobs are included (state contains `COMPLETED` and
+    - The **since** date is the start of the history window, derived from the
+      live queue:
+      - It starts roughly when your longest-running current task started
+        (based on the elapsed time reported by `squeue`), or
+      - From the beginning of today (UTC) if nothing is running.
+    - Only successful tasks are included (state contains `COMPLETED` and
       `ExitCode` starts with `0:`).
     - The table is split into:
-      - **Related to running job names** (names that currently have something
-        RUNNING).
-      - **Other finished jobs** (all other successful jobs in the window).
-    - Each row is one JobID, with its array-or-job identifier, name, state,
-      exit code, elapsed time, and node list.
+      - **Related to running jobs** (jobs whose array job ID matches an array
+        that currently has at least one RUNNING job).
+      - **Other finished jobs** (all other successful tasks in the window).
+    - Each row is one `JobID` from Slurm (which, for job arrays, may be a
+      specific job array element such as `12345_0`), with its array-or-job
+      identifier, name, state, exit code, elapsed time, and node list.
 - Data flow:
-  - `dfh_all = get_sacct(selected_user, SACCT_HISTORY_START_FOR_FINISHED)`.
-  - Optionally narrowed to a `dfh_window` based on the earliest running job
-    submit time.
-  - A filtered subset of successful jobs is rendered as two `st.dataframe(...)`
-    tables (related vs other).
+  - A start time and label are derived from `squeue` via
+    `derive_history_start_from_squeue(df)`.
+  - `dfh_window = get_sacct(selected_user, start_time)`.
+  - A filtered subset of successful tasks is rendered as two
+    `st.dataframe(...)` tables (related vs other).
 
 **Failures**
 
@@ -268,7 +273,8 @@ When queue isn’t empty:
       - **Related to running job names**.
       - **Other failures**.
     - Each row is grouped by `JobName` and includes:
-      - `Count`, last failing `JobID`, state, exit code, elapsed time, node,
+      - `Count`, last failing `JobID` (for arrays this is a specific job array
+        element such as `12345_0`), state, exit code, elapsed time, node,
         `MaxRSS`, and optional resource columns (e.g. `ReqMem`, `Timelimit`,
         `CPUTime`, `WorkDir`) when present.
 - Data flow:

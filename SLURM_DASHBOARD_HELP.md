@@ -98,12 +98,15 @@ If a job never appears in `sacct` (because of cluster settings or retention), th
 #### 3.3 FINISHED JOBS (since: …)
 
 - Based on `sacct` within a time window:
-  - From the **earliest Submit time of any currently running job**, if available, otherwise from the beginning of available history.
+  - Starts roughly when your longest-running current job started (derived
+    from the elapsed time in `squeue`), or from the beginning of today if
+    nothing is running.
 - Shows one row per JobID where:
   - `State` contains `COMPLETED`, and
   - `ExitCode` starts with `0:`.
 - Split into:
-  - **Related to running job names** – finished jobs whose `JobName` currently has at least one RUNNING job.
+  - **Related to running jobs** – finished jobs whose array JobID matches an
+    array that currently has at least one RUNNING job.
   - **Other finished jobs** – all other successful jobs in the window.
 
 #### 3.4 FAILURES (since: …)
@@ -115,7 +118,6 @@ If a job never appears in `sacct` (because of cluster settings or retention), th
 - Split into:
   - **Related to running job names** – failures for names that still have something RUNNING.
   - **Other failures** – everything else.
-
 
 ### 4. Tiny example
 

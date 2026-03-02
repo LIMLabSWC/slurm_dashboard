@@ -54,7 +54,7 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 import pandas as pd
@@ -152,7 +152,6 @@ SACCT_EXTRA_COLUMNS = [
     "Submit",
 ]
 SACCT_ALL_COLUMNS = SACCT_BASE_COLUMNS + SACCT_EXTRA_COLUMNS
-SACCT_HISTORY_START_FOR_FINISHED = "1970-01-01"
 
 
 def _squeue_from_json(out: str, user: str) -> Optional[pd.DataFrame]:
@@ -537,6 +536,75 @@ def _derive_array_or_job_id(job_id: str) -> str:
     return base
 
 
+def _parse_squeue_elapsed_to_seconds(value: str) -> int:
+    """
+    Best-effort parser for squeue elapsed time strings into seconds.
+
+    Handles formats like:
+    - "MM:SS"
+    - "HH:MM:SS"
+    - "D-HH:MM:SS"
+    Returns 0 on any parsing error.
+    """
+    if not isinstance(value, str):
+        return 0
+    s = value.strip()
+    if not s:
+        return 0
+    try:
+        days = 0
+        time_part = s
+        if "-" in s:
+            days_part, time_part = s.split("-", 1)
+            days = int(days_part)
+        parts = [int(p) for p in time_part.split(":")]
+        if len(parts) == 3:
+            hours, mins, secs = parts
+        elif len(parts) == 2:
+            hours, mins = parts
+            secs = 0
+        elif len(parts) == 1:
+            hours = 0
+            mins = parts[0]
+            secs = 0
+        else:
+            return 0
+        total = days * 86400 + hours * 3600 + mins * 60 + secs
+        return max(total, 0)
+    except Exception:
+        return 0
+
+
+def derive_history_start_from_squeue(df: pd.DataFrame) -> tuple[str, str]:
+    """
+    Derive a sacct --starttime and human-readable label from the live queue.
+
+    - If there are RUNNING tasks, we approximate the earliest submit time as
+      "now - max(elapsed)", using the squeue Time column.
+    - If there are no RUNNING tasks, we default to the start of today (UTC).
+
+    Returns:
+        (starttime_for_sacct, label_for_ui)
+    """
+    now = datetime.now(timezone.utc)
+    running = df[df["State"] == "RUNNING"] if not df.empty else pd.DataFrame()
+    if not running.empty and "Time" in running.columns:
+        elapsed_values = running["Time"].astype(str).tolist()
+        elapsed_seconds = [
+            _parse_squeue_elapsed_to_seconds(v) for v in elapsed_values
+        ]
+        elapsed_seconds = [s for s in elapsed_seconds if s > 0]
+        if elapsed_seconds:
+            start_dt = now - timedelta(seconds=max(elapsed_seconds))
+        else:
+            start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    label = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+    start_for_sacct = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
+    return start_for_sacct, label
+
+
 def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
     """
     Purpose:
@@ -761,13 +829,14 @@ with tab_overview:
                 "- Rows are grouped by **JOB NAME**, so each row summarizes "
                 "all queue entries with that name.\n"
                 "- `SAMPLE JOB ID` is one representative job for that row "
-                "(prefers a RUNNING job when available).\n"
+                "(for job arrays this is a single job array element such as "
+                "`12345_0`).\n"
                 "- `RUN`, `WAIT`, and `TOTAL` are counts in that group (with "
                 "`TOTAL` roughly equal to `RUN + WAIT` for live queue "
                 "states). Finished and failed jobs are primarily surfaced via "
                 "the **Finished jobs** and **Failures** sections below, using "
                 "`sacct`.\n"
-                "- `ELAPSED` shows runtime for a RUNNING task in that group; "
+                "- `ELAPSED` shows runtime for a RUNNING job in that group; "
                 "if none are running, it is `-`.\n"
                 "- `STATUS (summary)` is the row-level state used for quick "
                 "scanning (e.g. RUNNING, WAITING, BLOCKED, FAILED).\n"
@@ -828,38 +897,13 @@ with tab_overview:
         except Exception:
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-    dfh_all = get_sacct(selected_user, SACCT_HISTORY_START_FOR_FINISHED)
-    if dfh_all.empty:
-        st.info("No sacct data (or sacct not available).")
+    history_start, history_since_label = derive_history_start_from_squeue(df)
+    dfh_window = get_sacct(selected_user, history_start)
+    if dfh_window.empty:
+        st.info(
+            f"No sacct data (or sacct not available) since: {history_since_label}."
+        )
     else:
-        # Derive a dynamic time window based on the earliest submit time
-        # among the currently running jobs (if available), so we focus
-        # history on "this batch" of work.
-        dfh_window = dfh_all
-        history_since_label = "beginning of available history"
-        if running_job_ids and "Submit" in dfh_all.columns:
-            try:
-                dfh_running_ids = dfh_all[
-                    dfh_all["JobID"].astype(str).isin(running_job_ids)
-                ].copy()
-                if not dfh_running_ids.empty:
-                    submit_running = pd.to_datetime(
-                        dfh_running_ids["Submit"], errors="coerce"
-                    )
-                    if submit_running.notna().any():
-                        earliest_submit = submit_running.min()
-                        submit_all = pd.to_datetime(
-                            dfh_all["Submit"], errors="coerce"
-                        )
-                        dfh_window = dfh_all[
-                            submit_all >= earliest_submit
-                        ].copy()
-                        history_since_label = earliest_submit.strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        )
-            except Exception:
-                dfh_window = dfh_all
-                history_since_label = "beginning of available history"
 
         # ---------------- FINISHED JOBS: related vs other ----------------
         success_mask = dfh_window["State"].str.contains(
@@ -876,13 +920,14 @@ with tab_overview:
                 "- Shows jobs where `State` is `COMPLETED` and `ExitCode` "
                 "starts with `0:` (successful exits) for this user.\n"
                 "- The **since** date in the heading is the start of the "
-                "history window: it is the earliest `Submit` time among your "
-                "currently running jobs when available, or the beginning of "
-                "available accounting history otherwise.\n"
-                "- The **related** table lists finished jobs whose `JobName` "
-                "currently has at least one RUNNING job in the queue; the "
-                "**other** table lists all remaining finished jobs in this "
-                "time window.\n"
+                "history window, derived from the live queue: it starts roughly "
+                "when your longest-running current job started (based on the "
+                "elapsed time reported by `squeue`), or from the beginning of "
+                "today (UTC) if nothing is running.\n"
+                "- The **related** table lists finished jobs whose **array job "
+                "ID** matches an array that currently has at least one RUNNING "
+                "job in the queue; the **other** table lists all remaining "
+                "finished jobs in this time window.\n"
                 "- Each table is flat (one row per JobID), so you can sort and "
                 "search directly without extra nesting."
             )
@@ -895,11 +940,15 @@ with tab_overview:
             df_success_all["ArrayOrJobID"] = df_success_all["JobID"].astype(
                 str
             ).apply(_derive_array_or_job_id)
-            df_success_all["RelatedToRunning"] = (
-                df_success_all["JobName"].isin(running_names)
-                if running_names
-                else False
-            )
+            if running_job_ids:
+                running_array_ids = {
+                    _derive_array_or_job_id(j) for j in running_job_ids
+                }
+                df_success_all["RelatedToRunning"] = df_success_all[
+                    "ArrayOrJobID"
+                ].isin(running_array_ids)
+            else:
+                df_success_all["RelatedToRunning"] = False
 
             df_success_related = df_success_all[df_success_all["RelatedToRunning"]]
             df_success_other = df_success_all[~df_success_all["RelatedToRunning"]]
@@ -920,7 +969,7 @@ with tab_overview:
                 ]
                 detail_display = df_subset[detail_cols].rename(
                     columns={
-                        "ArrayOrJobID": "ARRAY / JOB",
+                        "ArrayOrJobID": "ARRAY JOB ID",
                         "JobID": "JOB ID",
                         "JobName": "JOB NAME",
                         "State": "STATE",
