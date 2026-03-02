@@ -9,9 +9,10 @@ Slurm, plus a helper script to start it safely on a login node.
   node (e.g. `hpc-gw2`).
 - **Data source**: read-only Slurm CLI commands (`squeue`, `sacct`,
   `scontrol show job`).
-- **UI**: two Streamlit pages:
-  - `Overview` – live queue summary and today’s failures.
+- **UI**: a single Streamlit app with three main tabs:
+  - `Overview` – live queue summary, recent finished jobs, and failures.
   - `Job inspector` – detailed view of a single job via `scontrol`.
+  - `Help` – documentation on how jobs / arrays / names map onto the dashboard.
 
 Users normally:
 
@@ -29,7 +30,7 @@ flowchart LR
     D --> G[sacct]
     E --> H[scontrol show job]
     F --> I[Live summary + Jobs by name]
-    G --> J[Historic failures]
+    G --> J[Finished jobs + failures]
     H --> K[Job inspector output]
 ```
 
@@ -70,8 +71,8 @@ place you should need to touch for port / tunnelling conventions.
 3. **Slurm parsers**
 4. **Cached wrappers**
 5. **Summaries / aggregations**
-6. **Sidebar (user + page + refresh)**
-7. **Pages** (`Overview`, `Job inspector`)
+6. **Sidebar (user + refresh)**
+7. **Tabs** (`Overview`, `Job inspector`, `Help`)
 
 #### 2.1 Styles & layout
 
@@ -115,8 +116,9 @@ Two main families:
   - `parse_sacct(user: str, start: str) -> DataFrame`:
     - Tries `sacct --json` first (`_sacct_from_json`).
     - Falls back to `--parsable2` with a fixed column list.
-    - Returns `SACCT_ALL_COLUMNS` (JobID, JobName, State, ExitCode, Elapsed,
-      NodeList, MaxRSS, ReqMem, Timelimit, CPUTime, WorkDir, SubmitLine).
+    - Returns `SACCT_ALL_COLUMNS`:
+      - `JobID, JobName, State, ExitCode, Elapsed, NodeList, MaxRSS,
+        ReqMem, Timelimit, CPUTime, WorkDir, SubmitLine, Submit, Reason`.
 
 Other helpers:
 
@@ -146,15 +148,17 @@ you ask for it.
 - `summarise_live_by_name(df)`:
   - Input: raw `squeue` DataFrame.
   - Groups by `Name`.
-  - Computes per-name counts: RUN, WAIT, DONE, FAIL, TOTAL.
+  - Computes per-name counts focused on the live queue: RUN, WAIT, TOTAL.
   - Chooses:
-    - `SampleJobID`: prefers a RUNNING job if any, otherwise last job in group.
+    - `SampleJobID`: prefers a RUNNING `JobID` if any (for arrays this is a
+      single job array element such as `12345_0`), otherwise the last job in
+      the group.
     - `ELAPSED`: time for a RUNNING job in the group, or `-`.
     - `NodeReason`: node name or scheduler reason, with a best-effort pick.
   - Derives a **Status** per name:
-    - FAILED > RUNNING > various WAITING states > DONE > UNKNOWN.
+    - FAILED > RUNNING > various WAITING states > UNKNOWN.
   - Output columns:
-    - `Name, SampleJobID, RUN, WAIT, DONE, FAIL, TOTAL,
+    - `Name, SampleJobID, RUN, WAIT, TOTAL,
       ELAPSED, Status, NodeReason`.
 
 - `summarise_failures_by_name(dfh)`:
@@ -165,8 +169,8 @@ you ask for it.
     - `Count` = number of failing jobs with that name.
     - `Last*` fields from the most recent failing job (JobID, State,
       ExitCode, Elapsed, Node, MaxRSS, etc.).
-  - Optionally includes `ReqMem`, `Timelimit`, `CPUTime`, `WorkDir` when
-    present.
+  - Optionally includes `ReqMem`, `Timelimit`, `CPUTime`, `WorkDir`,
+    `Reason` when present.
 
 These two summaries are exactly what power the two main tables.
 
@@ -174,13 +178,11 @@ These two summaries are exactly what power the two main tables.
 
 ### 3. Sidebar
 
-The sidebar manages three things:
+The sidebar manages:
 
 1. **User selection**
    - `selected_user` from a `selectbox` backed by `get_squeue_users()`.
-2. **Page selection**
-   - `page = st.radio("Page", ["Overview", "Job inspector"], ...)`.
-3. **Refresh control**
+2. **Refresh control**
    - `last_manual_refresh_ts` stored in `st.session_state`.
    - A small `render_refresh_age(...)` helper shows
      `Elapsed since refresh: HH:MM:SS` in the sidebar.
@@ -189,14 +191,13 @@ The sidebar manages three things:
      - Updates `last_manual_refresh_ts`.
      - Calls `st.rerun()`.
 
-This keeps the entire app’s state in a single place and makes refresh behavior
-explicit and predictable.
+This keeps the user context and manual refresh behavior in a single, predictable place.
 
 ---
 
-### 4. `Overview` page
+### 4. `Overview` tab
 
-Rendered when `page == "Overview"`.
+Rendered inside the `Overview` tab.
 
 **Header + meta**
 
@@ -234,29 +235,71 @@ When queue isn’t empty:
    - Rendered with `st.dataframe(...)` and a style function that colors the
      **STATUS (summary)** column to match the legend.
 
-**Historic failures**
+**Finished jobs**
 
-- Section title: `HISTORIC FAILURES (today, grouped by job name)`.
+- Section title: `FINISHED JOBS (since: <date>)`.
 - `How to read this` expander:
   - Explains:
-    - Included states.
-    - Meaning of `Count`.
-    - What all the `Last*` columns represent.
-    - How to interpret `MaxRSS` and optional resource fields.
-    - How to use this table with the Job inspector.
+    - The **since** date is the start of the history window, derived from the
+      live queue:
+      - It starts roughly when your longest-running current task started
+        (based on the elapsed time reported by `squeue`), or
+      - From the beginning of today (UTC) if nothing is running.
+    - Only successful tasks are included (state contains `COMPLETED` and
+      `ExitCode` starts with `0:`).
+    - The table is split into:
+      - **Related to running jobs** (jobs whose array job ID matches an array
+        that currently has at least one RUNNING job).
+      - **Other finished jobs** (all other successful tasks in the window).
+    - Each row is one `JobID` from Slurm (which, for job arrays, may be a
+      specific job array element such as `12345_0`), with its array-or-job
+      identifier, name, state, exit code, elapsed time, and node list.
 - Data flow:
-  - `dfh = get_sacct(selected_user, "today")`.
-  - If empty:
-    - Info: “No sacct data…” or “No failures today.”
-  - Else:
-    - `df_fail = get_failures_by_name(dfh)`.
-    - Rendered with `st.dataframe(...)`.
+  - A start time and label are derived from `squeue` via
+    `derive_history_start_from_squeue(df)`.
+  - `dfh_window = get_sacct(selected_user, start_time)`.
+  - A filtered subset of successful tasks is rendered as two
+    `st.dataframe(...)` tables (related vs other).
+
+**Failures**
+
+- Section title: `FAILURES (since: <date>)`.
+- `How to read this` expander:
+  - Explains:
+    - The same history window as **Finished jobs** is used.
+    - Included rows:
+      - States matching `FAILED`, `CANCELLED`, `TIMEOUT`, `OUT_OF_MEMORY`, or
+      - Any row with a non-zero `ExitCode`.
+    - The table is split into:
+      - **Related to running job names**.
+      - **Other failures**.
+    - Each row is grouped by `JobName` and includes:
+      - `Count`, last failing `JobID` (for arrays this is a specific job array
+        element such as `12345_0`), state, exit code, elapsed time, node,
+        `MaxRSS`, and optional resource columns (e.g. `ReqMem`, `Timelimit`,
+        `CPUTime`, `WorkDir`) when present.
+- Data flow:
+  - `df_fail_all = get_failures_by_name(dfh_window)`.
+  - Two `st.dataframe(...)` tables are rendered (related vs other).
 
 ---
 
-### 5. `Job inspector` page
+### 5. `Job inspector` tab
 
-Rendered when `page == "Job inspector"`.
+Rendered inside the `Job inspector` tab.
+
+---
+
+### 6. `Help` tab
+
+Rendered inside the `Help` tab.
+
+- Displays the contents of `SLURM_DASHBOARD_HELP.md` using `st.markdown`.
+- Explains how SLURM jobs / arrays / job names map onto:
+  - **SUMMARY**
+  - **QUEUED JOBS**
+  - **FINISHED JOBS**
+  - **FAILURES**
 
 **Purpose**
 
