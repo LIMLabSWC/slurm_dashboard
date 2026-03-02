@@ -30,18 +30,25 @@
   - One **task** per index: `2473824_0`, `2473824_1`, `2473824_2`, `2473824_3` (all share the same `JobName`).
   - SLURM may also log helper **steps** such as `2473824_0.batch` and `2473824_0.extern`.
 
-So a single submission can produce many JobIDs in history: all of the array elements share the same array JobID (e.g. 2473824) but their recorded JobName values can differ (e.g. my_array, my_array.batch, my_array.extern), so they are tied together primarily by the array JobID, not always by an identical job name.
+So a single submission can produce many JobIDs in history: all of the array
+elements share the same array JobID (e.g. 2473824) but their recorded JobName
+values can differ (e.g. `my_array`, `my_array.batch`, `my_array.extern`), so
+they are tied together primarily by the array JobID, not always by an identical
+job name.
 
 #### 1.1 How `JOB NAME` in the UI is chosen
 
 - In the **QUEUED JOBS** table:
   - The `JOB NAME` column comes from the `Name` field in `squeue` (which is based on the job name / script name as described above).
 - In the **FINISHED JOBS** and **FAILURES** sections:
-  - The `JOB NAME` column comes from `JobName` in `sacct`, which is the job name
-    recorded by accounting (usually matching the submission’s job name, but it
-    can include step variants such as `.batch` / `.extern`).
+  - The `JOB NAME` column comes from `JobName` in `sacct`, which is the job
+    name recorded by accounting (usually matching the submission’s job name,
+    but it can include step variants such as `.batch` / `.extern`).
 
-All grouping “by name” in the dashboard is based on this **job name** label, not the script filename directly, even though the default job name is often the script filename.
+Where the dashboard groups things “by name” (for example in **QUEUED JOBS** and
+the failures summary), it uses this **job name** label, not the script
+filename directly, even though the default job name is often the script
+filename.
 
 #### 1.2 Relationship diagram (text view)
 
@@ -110,8 +117,8 @@ If a job never appears in `sacct` (because of cluster settings or retention), th
 
 - Based on `sacct` within a time window:
   - Starts roughly when your longest-running current job started (derived
-    from the elapsed time in `squeue`), or from the beginning of today (UTC) if
-    nothing is running, subject to whatever accounting history your cluster
+    from the elapsed time in `squeue`), or from the beginning of today (UTC)
+    if nothing is running, subject to whatever accounting history your cluster
     retains.
 - Shows one row per JobID where:
   - `State` contains `COMPLETED`, and
