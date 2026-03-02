@@ -49,39 +49,15 @@ filename.
 
 #### 1.2 Relationship diagram
 
-```text
-[You submit]
-  sbatch --job-name=my_array --array=0-3 my_array_job.sh
+The diagram below summarises how a single array submission flows through:
 
-[Slurm objects]
-  Array JobID (parent)
-    2473824
-      ├─ Task (array element) 2473824_0
-      │    ├─ Step 2473824_0.batch
-      │    └─ Step 2473824_0.extern
-      ├─ Task (array element) 2473824_1
-      │    ├─ Step 2473824_1.batch
-      │    └─ Step 2473824_1.extern
-      ├─ Task (array element) 2473824_2
-      └─ Task (array element) 2473824_3
-           ├─ Step 2473824_3.batch
-           └─ Step 2473824_3.extern
+- **User** – the `sbatch` command you run.
+- **Slurm accounting** – the array JobID, its task JobIDs, and helper steps.
+- **Dashboard** – how those jobs and steps show up in **QUEUED JOBS** (live
+  queue, grouped by `JobName`), **FINISHED JOBS** (one row per successful
+  JobID), and **FAILURES** (non‑zero‑exit rows grouped by `JobName`).
 
-[How the dashboard sees this]
-
-  • QUEUED JOBS (by name, from squeue)
-      - Groups live entries by JobName, e.g. "my_array".
-      - While any 2473824_* task is PENDING/RUNNING, "my_array" appears here.
-
-  • FINISHED JOBS (since: …, from sacct)
-      - One row per JobID that completed successfully:
-          2473824_0, 2473824_0.batch, 2473824_0.extern, …
-      - Each row shows its JobID, JobName, state, exit code, elapsed, nodes.
-
-  • FAILURES (since: …, from sacct)
-      - Groups non‑zero‑exit rows by JobName.
-      - 2473824_1 (EXITCODE != 0) contributes to the "my_array" failure summary.
-```
+{{SLURM_JOB_ARRAY_DIAGRAM}}
 
 
 ### 2. Data sources used by the dashboard

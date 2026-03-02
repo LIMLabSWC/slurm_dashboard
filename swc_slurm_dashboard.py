@@ -1080,6 +1080,65 @@ with tab_inspector:
     else:
         st.info("Enter a job ID or pick one from the queue.")
 
+HELP_GRAPH_DOT = """
+digraph {
+  rankdir=LR;
+  fontsize=10;
+
+  subgraph cluster_user {
+    label="User";
+    style=rounded;
+    color="#999999";
+    node [shape=box, style=filled, fillcolor="#d0e4ff"];
+    U[label="sbatch --job-name=my_array\\n--array=0-3\\nmy_array_job.sh"];
+  }
+
+  subgraph cluster_slurm {
+    label="Slurm accounting";
+    style=rounded;
+    color="#999999";
+    node [shape=box, style=filled, fillcolor="#e3d7ff"];
+    P[label="Array JobID 2473824\\n(JobName = my_array)"];
+    T0[label="Task 2473824_0"];
+    T1[label="Task 2473824_1"];
+    T2[label="Task 2473824_2"];
+    T3[label="Task 2473824_3"];
+    S0B[label="Step 2473824_0.batch", fillcolor="#f5f5f5"];
+    S0E[label="Step 2473824_0.extern", fillcolor="#f5f5f5"];
+  }
+
+  subgraph cluster_dash {
+    label="Dashboard";
+    style=rounded;
+    color="#999999";
+    node [shape=box, style=filled, fillcolor="#ffd8a8"];
+    Q[label="QUEUED JOBS\\n(by JobName)"];
+    F[label="FINISHED JOBS\\n(one row per JobID)"];
+    X[label="FAILURES\\n(grouped by JobName)"];
+  }
+
+  U -> P [label="submit"];
+
+  P -> T0 [label="array elements"];
+  P -> T1;
+  P -> T2;
+  P -> T3;
+
+  T0 -> S0B [label="steps"];
+  T0 -> S0E;
+
+  T0 -> Q [label="live queue"];
+  T1 -> Q;
+
+  T0 -> F [label="successful"];
+  S0B -> F;
+  S0E -> F;
+
+  T1 -> X [label="non-zero exit"];
+}
+"""
+
+
 with tab_help:
     st.markdown(
         "<p class='help-text'>Overview of SLURM jobs, arrays, job names, and "
@@ -1092,7 +1151,17 @@ with tab_help:
     try:
         with open(help_path, "r", encoding="utf-8") as f:
             help_md = f.read()
-        st.markdown(help_md)
+
+        marker = "{{SLURM_JOB_ARRAY_DIAGRAM}}"
+        if marker in help_md:
+            before, after = help_md.split(marker, 1)
+            if before.strip():
+                st.markdown(before)
+            st.graphviz_chart(HELP_GRAPH_DOT)
+            if after.strip():
+                st.markdown(after)
+        else:
+            st.markdown(help_md)
     except OSError:
         st.error(
             "Help content file `SLURM_DASHBOARD_HELP.md` not found or "
