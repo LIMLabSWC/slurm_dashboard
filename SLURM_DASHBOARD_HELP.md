@@ -100,6 +100,17 @@ If a job never appears in `sacct` (because of cluster settings or retention), th
   - **Related to running jobs** – finished jobs whose array JobID matches an
     array that currently has at least one RUNNING job.
   - **Other finished jobs** – all other successful jobs in the window.
+  
+Additional columns shown here:
+
+- **`REQUESTED MEMORY`** – the memory request as recorded by Slurm accounting
+  (`ReqMem`) on the main job / array-element row (e.g. `2469691_5`).
+- **`MAX USED MEMORY in GB`** – the peak resident set size (`MaxRSS`), converted
+  to GiB, usually reported on the corresponding batch step
+  (e.g. `2469691_5.batch`).
+- For job arrays, you can match requested vs used memory for a given element by
+  using the shared array JobID / the prefix of the `JOB ID` (e.g. `2469691_5`
+  and `2469691_5.batch`).
 
 #### 3.4 FAILURES (since: …)
 
@@ -110,6 +121,15 @@ If a job never appears in `sacct` (because of cluster settings or retention), th
 - Split into:
   - **Related to running job names** – failures for names that still have something RUNNING.
   - **Other failures** – everything else.
+
+The failures tables reuse many of the same columns as FINISHED JOBS and add a
+per-name summary view (grouped by `JOB NAME`) with:
+
+- `Count` – how many failures have been recorded for that name.
+- `Last*` columns – details from the most recent failing job for that name,
+  including `LastJobID`, `LastState`, `LastExitCode`, `LastElapsed`,
+  `LastNode`, and `MaxRSS`. Conditional styling highlights important failure
+  states such as `OUT_OF_MEMORY` and `TIMEOUT` so they stand out visually.
 
 ### 4. Tiny example
 

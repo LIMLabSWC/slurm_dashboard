@@ -35,30 +35,30 @@ Outputs:
     - Interactive web UI rendered by Streamlit.
     - Tabular summaries of live queue and historic failures.
 """
-# ------------------------------------------------------------------------------
-# Module layout 
-# MAIN = core workflow sections: read data → shape data → show data
-# ------------------------------------------------------------------------------
-
-#  1. Styles & layout
-#  2. Shell helpers
-#  3. MAIN: Slurm parsers (read data)
-#  4. Cached wrappers
-#  5. MAIN: Summaries / aggregations (shape data)
-#  6. MAIN: Sidebar (user + refresh controls)
-#  7. MAIN: Tabs (Overview, Job inspector, Help)
 
 from __future__ import annotations
 
-import json
 import os
-import re
-import subprocess
-from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import List
 
 import pandas as pd
 import streamlit as st
+
+from read_slurm_data import (
+    SACCT_ALL_COLUMNS,
+    list_squeue_users,
+    parse_sacct,
+    parse_squeue,
+    scontrol_show_job,
+)
+from shape_slurm_data import (
+    _derive_array_or_job_id,
+    _parse_maxrss_to_gb,
+    derive_history_start_from_squeue,
+    summarise_failures_by_name,
+    summarise_live_by_name,
+)
 
 st.set_page_config(
     page_title="SWC Slurm Dashboard",
@@ -83,316 +83,11 @@ st.markdown(
     .health-ok { color: #22c55e; }
     .health-warn { color: #f97316; }
     .dashboard-meta { font-size: 0.875rem; color: var(--text-color); opacity: 0.75; margin-top: -0.5rem; margin-bottom: 1.5rem; }
+    [data-testid="stExpander"] summary::first-letter { color: #9ca3af; }
     </style>
     """,
     unsafe_allow_html=True,
 )
-
-# ------------------------------------------------------------------------------
-# Shell helpers (sh, safe_sh)
-# ------------------------------------------------------------------------------
-
-
-def sh(cmd: str) -> str:
-    """Run a shell command and return stdout, raising on non-zero exit."""
-    return subprocess.check_output(
-        cmd,
-        shell=True,
-        text=True,
-        stderr=subprocess.STDOUT,
-    )
-
-
-def safe_sh(cmd: str) -> str:
-    """
-    Purpose:
-        Run a shell command and return stdout, capturing errors as strings.
-
-    Execution Flow:
-        safe_sh()
-          └── sh()
-
-    Side Effects:
-        - Executes the given shell command.
-
-    Inputs:
-        - cmd: Shell command string to execute.
-
-    Outputs:
-        - Command stdout on success.
-        - Error output or exception text on failure (no exception raised).
-    """
-    try:
-        return sh(cmd)
-    except subprocess.CalledProcessError as e:
-        return e.output or str(e)
-
-
-# ------------------------------------------------------------------------------
-# MAIN: Slurm parsers (read data from Slurm into DataFrames)
-# ------------------------------------------------------------------------------
-
-SQUEUE_COLUMNS = ["JobID", "State", "Name", "Time", "Reason", "Dependency"]
-
-SACCT_BASE_COLUMNS = [
-    "JobID",
-    "JobName",
-    "State",
-    "ExitCode",
-    "Elapsed",
-    "NodeList",
-    "MaxRSS",
-]
-SACCT_EXTRA_COLUMNS = [
-    "ReqMem",
-    "Timelimit",
-    "CPUTime",
-    "WorkDir",
-    "SubmitLine",
-    "Submit",
-    "Reason",
-]
-SACCT_ALL_COLUMNS = SACCT_BASE_COLUMNS + SACCT_EXTRA_COLUMNS
-
-
-def _squeue_from_json(out: str, user: str) -> Optional[pd.DataFrame]:
-    """
-    Purpose:
-        Build a queue DataFrame from `squeue --json` output for a single user.
-
-    Execution Flow:
-        _squeue_from_json()
-          └── json.loads()
-
-    Side Effects:
-        - None (pure transformation of input string).
-
-    Inputs:
-        - out: Raw JSON string from `squeue --json`.
-        - user: Username to filter jobs for.
-
-    Outputs:
-        - pandas.DataFrame with SQUEUE_COLUMNS, or None if parsing fails.
-    """
-    try:
-        data = json.loads(out)
-        jobs = data.get("jobs") if isinstance(data, dict) else None
-        if not jobs:
-            return None
-        rows: List[tuple] = []
-        for j in jobs:
-            if user and j.get("user_name") != user:
-                continue
-            jid = str(j.get("job_id", ""))
-            state_obj = j.get("job_state")
-            state = (
-                state_obj.get("current", state_obj)
-                if isinstance(state_obj, dict)
-                else str(state_obj or "")
-            )
-            name = str(j.get("name") or j.get("job_name") or "")
-            elapsed = str(j.get("elapsed_time") or j.get("time") or "")
-            reason = str(j.get("reason") or "")
-            dep = str(j.get("dependency") or "")
-            rows.append((jid, state, name, elapsed, reason, dep))
-        return pd.DataFrame(rows, columns=SQUEUE_COLUMNS)
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return None
-
-
-def parse_squeue(user: str) -> pd.DataFrame:
-    """
-    Purpose:
-        Obtain the current SLURM queue for a user as a DataFrame.
-
-    Execution Flow:
-        parse_squeue()
-          ├── safe_sh('squeue --json ...')
-          ├── _squeue_from_json()
-          └── safe_sh('squeue -o ...')  # pipe-delimited fallback
-
-    Side Effects:
-        - Executes `squeue` via the shell (read-only).
-
-    Inputs:
-        - user: SLURM username to query.
-
-    Outputs:
-        - pandas.DataFrame with one row per job and SQUEUE_COLUMNS.
-    """
-    cmd_json = f"squeue -u {user} --json 2>/dev/null"
-    out_json = safe_sh(cmd_json).strip()
-    if out_json and "error" not in out_json.lower():
-        df = _squeue_from_json(out_json, user)
-        if df is not None:
-            return df
-    cmd = f"squeue -u {user} -h -o '%i|%T|%j|%M|%R|%E'"
-    out = safe_sh(cmd).strip()
-    rows: List[tuple] = []
-    for line in out.splitlines():
-        parts = line.split("|")
-        if len(parts) != 6:
-            continue
-        rows.append(tuple(p.strip() for p in parts))
-    return pd.DataFrame(rows, columns=SQUEUE_COLUMNS)
-
-
-def _sacct_from_json(out: str) -> Optional[pd.DataFrame]:
-    """
-    Purpose:
-        Build a history DataFrame from `sacct --json` output.
-
-    Execution Flow:
-        _sacct_from_json()
-          └── json.loads()
-
-    Side Effects:
-        - None (pure transformation of input string).
-
-    Inputs:
-        - out: Raw JSON string from `sacct --json`.
-
-    Outputs:
-        - pandas.DataFrame with SACCT_ALL_COLUMNS, or None if parsing fails.
-    """
-    try:
-        data = json.loads(out)
-        jobs = data.get("jobs") if isinstance(data, dict) else None
-        if not jobs:
-            return None
-        rows: List[tuple] = []
-        for j in jobs:
-
-            def g(*keys: str, default: str = ""):
-                for k in keys:
-                    v = j.get(k)
-                    if v is not None and v != "":
-                        return str(v)
-                return default
-
-            row = (
-                g("job_id", "JobID"),
-                g("job_name", "name", "JobName"),
-                g("state", "job_state", "State"),
-                g("exit_code", "ExitCode"),
-                g("elapsed", "Elapsed"),
-                g("nodelist", "node_list", "NodeList"),
-                g("max_rss", "MaxRSS"),
-                g("req_mem", "ReqMem"),
-                g("timelimit", "time_limit", "Timelimit"),
-                g("cpu_time", "cputime", "CPUTime"),
-                g("work_dir", "workdir", "WorkDir"),
-                g("submit_line", "SubmitLine"),
-                g("submit", "Submit"),
-                g("reason", "Reason"),
-            )
-            rows.append(row)
-        return pd.DataFrame(rows, columns=SACCT_ALL_COLUMNS)
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return None
-
-
-def parse_sacct(user: str, start: str) -> pd.DataFrame:
-    """
-    Purpose:
-        Query SLURM job history for a user and time window as a DataFrame.
-
-    Execution Flow:
-        parse_sacct()
-          ├── safe_sh('sacct --json ...')
-          ├── _sacct_from_json()
-          └── safe_sh('sacct --parsable2 ...')  # extended format fallback
-
-    Side Effects:
-        - Executes `sacct` via the shell (read-only).
-
-    Inputs:
-        - user: SLURM username to query.
-        - start: Start time string accepted by `sacct --starttime`.
-
-    Outputs:
-        - pandas.DataFrame with SACCT_ALL_COLUMNS (may be empty).
-    """
-    cmd_json = f"sacct -u {user} --starttime {start} --json 2>/dev/null"
-    out_json = safe_sh(cmd_json).strip()
-    if out_json and "error" not in out_json.lower():
-        df = _sacct_from_json(out_json)
-        if df is not None and not df.empty:
-            return df
-    fmt = (
-        "JobID,JobName,State,ExitCode,Elapsed,NodeList,MaxRSS,"
-        "ReqMem,Timelimit,CPUTime,WorkDir,SubmitLine,Submit,Reason"
-    )
-    cmd = (
-        f"sacct -u {user} --starttime {start} "
-        f"--format={fmt} --parsable2 --noheader"
-    )
-    out = safe_sh(cmd).strip()
-    if not out or "sacct: error" in out.lower():
-        return pd.DataFrame(columns=SACCT_ALL_COLUMNS)
-    rows: List[tuple] = []
-    n_cols = len(SACCT_ALL_COLUMNS)
-    for line in out.splitlines():
-        parts = line.split("|")
-        padded = (parts + [""] * n_cols)[:n_cols]
-        rows.append(tuple(padded))
-    return pd.DataFrame(rows, columns=SACCT_ALL_COLUMNS)
-
-
-def list_squeue_users() -> List[str]:
-    """
-    Purpose:
-        List distinct users currently present in the SLURM queue, plus $USER.
-
-    Execution Flow:
-        list_squeue_users()
-          └── safe_sh('squeue -o %u')
-
-    Side Effects:
-        - Executes `squeue` via the shell (read-only).
-
-    Inputs:
-        - None (uses environment variable USER implicitly).
-
-    Outputs:
-        - Sorted list of usernames.
-    """
-    out = safe_sh("squeue -h -o '%u' 2>/dev/null").strip()
-    users = sorted({u for u in out.splitlines() if u})
-    env_user = os.environ.get("USER", "").strip()
-    if env_user and env_user not in users:
-        users.append(env_user)
-    if not users:
-        users = [env_user or "unknown"]
-    return sorted(users)
-
-
-def scontrol_show_job(job_id: str) -> str:
-    """
-    Purpose:
-        Return the raw output of `scontrol show job <job_id>` for inspection.
-
-    Execution Flow:
-        scontrol_show_job()
-          └── safe_sh('scontrol show job ...')
-
-    Side Effects:
-        - Executes `scontrol show job` via the shell (read-only).
-
-    Inputs:
-        - job_id: SLURM job ID or array task specifier.
-
-    Outputs:
-        - Formatted `scontrol show job` output, or a validation/error message.
-    """
-    job_id = (job_id or "").strip()
-    clean = job_id.replace(" ", "")
-    if not clean or not re.match(
-        r"^\d+(_\d+)?(\[\d+(-\d+)?(,\d+(-\d+)?)*\])?$", clean
-    ):
-        return "Invalid or empty job ID."
-    out = safe_sh(f"scontrol show job {job_id} 2>&1")
-    return out.strip() or "No output."
 
 
 # ------------------------------------------------------------------------------
@@ -430,309 +125,6 @@ def get_scontrol_job(job_id: str) -> str:
     """Cached scontrol show job (short TTL so recent jobs show up)."""
     return scontrol_show_job(job_id)
 
-
-# ------------------------------------------------------------------------------
-# MAIN: Summaries / aggregations (shape data for display)
-# ------------------------------------------------------------------------------
-
-
-def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Purpose:
-        Aggregate live queue data by job name with status and a sample JobID.
-
-    Execution Flow:
-        summarise_live_by_name()
-          └── groupby('Name') and compute summary metrics per name.
-
-    Side Effects:
-        - None (pure DataFrame transformation).
-
-    Inputs:
-        - df: DataFrame from `parse_squeue`, including JobID, State, Time, Reason.
-
-    Outputs:
-        - DataFrame with one row per job name, counts, elapsed, status,
-          node reason, and a representative SampleJobID.
-    """
-    if df.empty:
-        return pd.DataFrame(
-            columns=[
-                "Name",
-                "SampleJobID",
-                "RUN",
-                "WAIT",
-                "TOTAL",
-                "ELAPSED",
-                "Status",
-                "NodeReason",
-            ]
-        )
-    failed_states = ("FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY")
-    rows: List[dict] = []
-    for name, group in df.groupby("Name", dropna=False):
-        name = name or "(no name)"
-        states = group["State"].tolist()
-        reasons = group["Reason"].fillna("").tolist()
-        times = group["Time"].fillna("").tolist()
-        job_ids = group["JobID"].astype(str).tolist()
-        run = sum(s == "RUNNING" for s in states)
-        wait = sum(s == "PENDING" for s in states)
-        fail = sum(any(fs in s for fs in failed_states) for s in states)
-        total = len(group)
-        elapsed = "-"
-        node_reason = ""
-        sample_job_id = ""
-        for i, s in enumerate(states):
-            if s == "RUNNING":
-                if times[i]:
-                    elapsed = times[i]
-                node_reason = reasons[i] if i < len(reasons) else ""
-                sample_job_id = job_ids[i] if i < len(job_ids) else ""
-                break
-        if not node_reason and reasons:
-            node_reason = next((r for r in reasons if r), "")
-        if not sample_job_id and job_ids:
-            # Fall back to the last job in the group if none are RUNNING.
-            sample_job_id = job_ids[-1]
-        has_dep_never = any("DependencyNeverSatisfied" in r for r in reasons)
-        has_dep = any("Dependency" in r for r in reasons)
-        if fail > 0:
-            status = "FAILED"
-        elif run > 0:
-            status = "RUNNING"
-        elif wait > 0 and has_dep_never:
-            status = "BLOCKED (dependency never satisfied)"
-        elif wait > 0 and has_dep:
-            status = "WAITING (dependency)"
-        elif wait > 0:
-            status = "WAITING"
-        else:
-            status = "UNKNOWN"
-        rows.append(
-            {
-                "Name": name,
-                "SampleJobID": sample_job_id,
-                "RUN": run,
-                "WAIT": wait,
-                "TOTAL": total,
-                "ELAPSED": elapsed,
-                "Status": status,
-                "NodeReason": node_reason,
-            }
-        )
-    out = pd.DataFrame(rows)
-    return out.sort_values("Name").reset_index(drop=True)
-
-
-def _derive_array_or_job_id(job_id: str) -> str:
-    """
-    Derive an array-or-job identifier from a SLURM JobID.
-
-    For array tasks like '12345_3', this returns '12345'.
-    For non-array jobs, this returns the original JobID.
-    """
-    if not isinstance(job_id, str):
-        return ""
-    base = job_id.split("_", 1)[0]
-    return base
-
-
-def _parse_squeue_elapsed_to_seconds(value: str) -> int:
-    """
-    Best-effort parser for squeue elapsed time strings into seconds.
-
-    Handles formats like:
-    - "MM:SS"
-    - "HH:MM:SS"
-    - "D-HH:MM:SS"
-    Returns 0 on any parsing error.
-    """
-    if not isinstance(value, str):
-        return 0
-    s = value.strip()
-    if not s:
-        return 0
-    try:
-        days = 0
-        time_part = s
-        if "-" in s:
-            days_part, time_part = s.split("-", 1)
-            days = int(days_part)
-        parts = [int(p) for p in time_part.split(":")]
-        if len(parts) == 3:
-            hours, mins, secs = parts
-        elif len(parts) == 2:
-            hours, mins = parts
-            secs = 0
-        elif len(parts) == 1:
-            hours = 0
-            mins = parts[0]
-            secs = 0
-        else:
-            return 0
-        total = days * 86400 + hours * 3600 + mins * 60 + secs
-        return max(total, 0)
-    except Exception:
-        return 0
-
-
-def derive_history_start_from_squeue(df: pd.DataFrame) -> tuple[str, str]:
-    """
-    Derive a sacct --starttime and human-readable label from the live queue.
-
-    - If there are RUNNING tasks, we approximate the earliest submit time as
-      "now - max(elapsed)", using the squeue Time column.
-    - If there are no RUNNING tasks, we default to the start of today (UTC).
-
-    Returns:
-        (starttime_for_sacct, label_for_ui)
-    """
-    now = datetime.now(timezone.utc)
-    running = df[df["State"] == "RUNNING"] if not df.empty else pd.DataFrame()
-    if not running.empty and "Time" in running.columns:
-        elapsed_values = running["Time"].astype(str).tolist()
-        elapsed_seconds = [
-            _parse_squeue_elapsed_to_seconds(v) for v in elapsed_values
-        ]
-        elapsed_seconds = [s for s in elapsed_seconds if s > 0]
-        if elapsed_seconds:
-            start_dt = now - timedelta(seconds=max(elapsed_seconds))
-        else:
-            start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    else:
-        start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    label = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-    start_for_sacct = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
-    return start_for_sacct, label
-
-
-def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
-    """
-    Purpose:
-        Summarise historic failed/cancelled/timed-out jobs grouped by name.
-
-    Execution Flow:
-        summarise_failures_by_name()
-          ├── filter interesting failure states
-          ├── count failures per JobName
-          └── attach most recent failure details per name
-
-    Side Effects:
-        - None (pure DataFrame transformation).
-
-    Inputs:
-        - dfh: DataFrame from `parse_sacct` for a given time window.
-
-    Outputs:
-        - DataFrame with one row per JobName and aggregated failure details.
-    """
-    if dfh.empty:
-        return pd.DataFrame(
-            columns=[
-                "JobName",
-                "Count",
-                "LastJobID",
-                "LastState",
-                "LastExitCode",
-                "LastElapsed",
-                "LastNode",
-                "MaxRSS",
-            ]
-        )
-    state_failure = dfh["State"].str.contains(
-        "FAILED|OUT_OF_MEMORY|CANCELLED|TIMEOUT",
-        case=False,
-        na=False,
-    )
-    exit_nonzero = dfh["ExitCode"].astype(str).str.len().gt(0) & ~dfh[
-        "ExitCode"
-    ].astype(str).str.startswith("0:", na=False)
-    interesting = dfh[state_failure | exit_nonzero].copy()
-    if interesting.empty:
-        return pd.DataFrame(
-            columns=[
-                "JobName",
-                "Count",
-                "LastJobID",
-                "LastState",
-                "LastExitCode",
-                "LastElapsed",
-                "LastNode",
-                "MaxRSS",
-            ]
-        )
-    extra = [
-        c
-        for c in ["ReqMem", "Timelimit", "CPUTime", "WorkDir", "Reason"]
-        if c in interesting.columns
-    ]
-    interesting_sorted = interesting.sort_values("JobID")
-    counts = (
-        interesting_sorted.groupby("JobName").size().reset_index(name="Count")
-    )
-    last = interesting_sorted.groupby("JobName", as_index=False).tail(1)
-    merged = counts.merge(last, on="JobName", how="left")
-    merged = merged.rename(
-        columns={
-            "JobID": "LastJobID",
-            "State": "LastState",
-            "ExitCode": "LastExitCode",
-            "Elapsed": "LastElapsed",
-            "NodeList": "LastNode",
-            "MaxRSS": "MaxRSS",
-        }
-    )
-    base_cols = [
-        "JobName",
-        "Count",
-        "LastJobID",
-        "LastState",
-        "LastExitCode",
-        "LastElapsed",
-        "LastNode",
-        "MaxRSS",
-    ]
-    cols = base_cols + [c for c in extra if c in merged.columns]
-    merged = merged[[c for c in cols if c in merged.columns]]
-    return merged.sort_values(["Count", "JobName"], ascending=[False, True])
-
-
-def _parse_maxrss_to_gb(value: str) -> float:
-    """
-    Best-effort parser for Slurm MaxRSS values to GiB.
-
-    Handles strings such as:
-    - "123456K", "1024M", "2G", "1.5T"
-    - Bare numbers are treated as MiB (Slurm's common default).
-    Returns NaN on any parsing error.
-    """
-    if not isinstance(value, str):
-        return float("nan")
-    s = value.strip()
-    if not s:
-        return float("nan")
-    try:
-        m = re.match(r"^([0-9]*\.?[0-9]+)\s*([kKmMgGtT])?.*$", s)
-        if not m:
-            return float("nan")
-        num = float(m.group(1))
-        unit = (m.group(2) or "M").upper()
-        if unit == "K":
-            # KiB -> GiB
-            return num / (1024**2)
-        if unit == "M":
-            # MiB -> GiB
-            return num / 1024.0
-        if unit == "G":
-            # GiB
-            return num
-        if unit == "T":
-            # TiB -> GiB
-            return num * 1024.0
-        return float("nan")
-    except Exception:
-        return float("nan")
 
 
 if hasattr(st, "fragment"):
@@ -808,6 +200,7 @@ tab_overview, tab_inspector, tab_help = st.tabs(
     ["Overview", "Job inspector", "Help"]
 )
 
+# Overview tab: live queue, finished jobs, failures
 with tab_overview:
     df = get_squeue(selected_user)
     if df.empty:
@@ -863,7 +256,7 @@ with tab_overview:
             '<p class="section-title">QUEUED JOBS (by name)</p>',
             unsafe_allow_html=True,
         )
-        with st.expander("How to read this", expanded=False):
+        with st.expander("ℹ How to read this", expanded=False):
             st.markdown(
                 "- Rows are grouped by **JOB NAME**, so each row summarizes "
                 "all queue entries with that name.\n"
@@ -936,48 +329,62 @@ with tab_overview:
         except Exception:
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-        # Optional detail view for queued jobs by name.
-        if running_names:
-            with st.expander(
-                "Queued job details (for running job names)", expanded=False
-            ):
-                detail_name = st.selectbox(
-                    "Job name to inspect (details below)",
-                    options=["(none)"] + sorted(running_names),
-                    index=0,
-                    key="queued_job_detail_name",
-                )
-                if detail_name != "(none)":
-                    df_detail = df[df["Name"] == detail_name].copy()
-                    if not df_detail.empty:
-                        detail_cols = [
-                            "JobID",
-                            "State",
-                            "Time",
-                            "Reason",
-                            "Dependency",
-                        ]
-                        detail_cols = [
-                            c for c in detail_cols if c in df_detail.columns
-                        ]
-                        df_detail_display = df_detail[detail_cols].rename(
-                            columns={
-                                "JobID": "JOB ID",
-                                "State": "STATE",
-                                "Time": "ELAPSED",
-                                "Reason": "NODE / REASON",
-                                "Dependency": "DEPENDENCY",
-                            }
+        # Optional detail view for queued jobs by array job ID.
+        if running_job_ids:
+            array_ids = sorted(
+                {
+                    _derive_array_or_job_id(str(jid))
+                    for jid in running_job_ids
+                    if str(jid)
+                }
+            )
+            if array_ids:
+                with st.expander(
+                    "View queue entries by array job ID", expanded=False
+                ):
+                    detail_array_id = st.selectbox(
+                        "Array job ID to inspect (details below)",
+                        options=["(none)"] + array_ids,
+                        index=0,
+                        key="queued_job_detail_array_id",
+                    )
+                    if detail_array_id != "(none)":
+                        mask = (
+                            df["JobID"]
+                            .astype(str)
+                            .map(_derive_array_or_job_id)
+                            == detail_array_id
                         )
-                        st.dataframe(
-                            df_detail_display,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-                        st.caption(
-                            "Rows above show individual queue entries (including array "
-                            "elements and their states) for the selected job name."
-                        )
+                        df_detail = df[mask].copy()
+                        if not df_detail.empty:
+                            detail_cols = [
+                                "JobID",
+                                "State",
+                                "Time",
+                                "Reason",
+                                "Dependency",
+                            ]
+                            detail_cols = [
+                                c for c in detail_cols if c in df_detail.columns
+                            ]
+                            df_detail_display = df_detail[detail_cols].rename(
+                                columns={
+                                    "JobID": "JOB ID",
+                                    "State": "STATE",
+                                    "Time": "ELAPSED",
+                                    "Reason": "NODE / REASON",
+                                    "Dependency": "DEPENDENCY",
+                                }
+                            )
+                            st.dataframe(
+                                df_detail_display,
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                            st.caption(
+                                "Rows above show individual queue entries (including array "
+                                "elements and their states) for the selected array job ID."
+                            )
 
     history_start, history_since_label = derive_history_start_from_squeue(df)
     dfh_window = get_sacct(selected_user, history_start)
@@ -987,7 +394,7 @@ with tab_overview:
         f'<p class="section-title">FINISHED JOBS (since: {history_since_label})</p>',
         unsafe_allow_html=True,
     )
-    with st.expander("How to read this", expanded=False):
+    with st.expander("ℹ How to read this", expanded=False):
         st.markdown(
             "- Shows jobs where `State` is `COMPLETED` and `ExitCode` "
             "starts with `0:` (successful exits) for this user.\n"
@@ -1102,7 +509,7 @@ with tab_overview:
         f'<p class="section-title">FAILURES (since: {history_since_label})</p>',
         unsafe_allow_html=True,
     )
-    with st.expander("How to read this", expanded=False):
+    with st.expander("ℹ How to read this", expanded=False):
         st.markdown(
             "- Includes jobs in these states: `FAILED`, `CANCELLED`, "
             "`TIMEOUT`, `OUT_OF_MEMORY`, or any job with a non-zero "
@@ -1203,6 +610,7 @@ with tab_overview:
             )
             _render_fail_block("Other failures", df_fail_other)
 
+# Job inspector tab
 with tab_inspector:
     st.markdown(
         "<p class='help-text'>Run <code>scontrol show job &lt;JobID&gt;</code> "
@@ -1234,6 +642,8 @@ with tab_inspector:
     else:
         st.info("Enter a job ID or pick one from the queue.")
 
+
+# Help tab
 HELP_GRAPH_DOT = """
 digraph {
   rankdir=TB;

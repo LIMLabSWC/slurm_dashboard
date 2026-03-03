@@ -1,7 +1,8 @@
 ## Architecture
 
-This project is deliberately small: a single Streamlit app that shells out to
-Slurm, plus a helper script to start it safely on a login node.
+This project is deliberately small: one Streamlit app that shells out to Slurm,
+split into three Python modules plus a helper script to start it safely on a
+login node.
 
 ### High-level picture
 
@@ -9,6 +10,13 @@ Slurm, plus a helper script to start it safely on a login node.
   node (e.g. `hpc-gw2`).
 - **Data source**: read-only Slurm CLI commands (`squeue`, `sacct`,
   `scontrol show job`).
+- **Python modules**:
+  - `read_slurm_data.py` – read layer: shell helpers and Slurm parsers that turn
+    `squeue` / `sacct` / `scontrol show job` into pandas DataFrames or text.
+  - `shape_slurm_data.py` – shape layer: pure helpers that aggregate and reshape
+    those DataFrames into the summaries used by the UI.
+  - `swc_slurm_dashboard.py` – view layer: Streamlit UI, cached `get_*` wrappers
+    over the read/shape layers, sidebar, and tabs.
 - **UI**: a single Streamlit app with three main tabs:
   - `Overview` – live queue summary, recent finished jobs, and failures.
   - `Job inspector` – detailed view of a single job via `scontrol`.
@@ -22,15 +30,18 @@ Users normally:
 
 ```mermaid
 flowchart LR
-    A[Laptop Browser] -->|SSH tunnel| B[Streamlit app: swc_slurm_dashboard.py]
-    B --> C[get_squeue / parse_squeue]
-    B --> D[get_sacct / parse_sacct]
-    B --> E[get_scontrol_job / scontrol_show_job]
+    A[Laptop Browser] -->|SSH tunnel| B[Streamlit UI: swc_slurm_dashboard.py]
+
+    B --> C[read_slurm_data.py<br/>parse_squeue / parse_sacct / scontrol_show_job]
+    B --> D[shape_slurm_data.py<br/>summarise_live_by_name / summarise_failures_by_name]
+
     C --> F[squeue]
-    D --> G[sacct]
-    E --> H[scontrol show job]
-    F --> I[Live summary + Jobs by name]
-    G --> J[Finished jobs + failures]
+    C --> G[sacct]
+    C --> H[scontrol show job]
+
+    D --> I[Live summary + Jobs by name]
+    D --> J[Finished jobs + failures]
+
     H --> K[Job inspector output]
 ```
 
@@ -62,19 +73,66 @@ place you should need to touch for port / tunnelling conventions.
 
 ---
 
-### 2. Streamlit app: `swc_slurm_dashboard.py`
+### 2. Python modules
 
-`swc_slurm_dashboard.py` is structured into clear sections (in order):
+#### 2.1 Read layer: `read_slurm_data.py`
+
+**Responsibility**
+
+- Provide a small, typed API for reading Slurm data into pandas DataFrames or
+  raw text using the standard CLI tools.
+
+**Key pieces**
+
+- Shell helpers:
+  - `sh(cmd)` – thin wrapper around `subprocess.check_output`.
+  - `safe_sh(cmd)` – calls `sh` but returns error text instead of raising.
+- Column definitions for `squeue` / `sacct`.
+- Parsers:
+  - `parse_squeue(user)` – returns a fixed-shape live-queue DataFrame.
+  - `parse_sacct(user, start)` – returns a fixed-shape history DataFrame.
+- Other helpers:
+  - `list_squeue_users()` – distinct users in `squeue` plus `$USER`.
+  - `scontrol_show_job(job_id)` – validation + raw `scontrol show job` output.
+
+Only read‑only, fixed-format Slurm commands ever reach `safe_sh`; no free‑form
+user shell is executed.
+
+#### 2.2 Shape layer: `shape_slurm_data.py`
+
+**Responsibility**
+
+- Take the raw DataFrames from `read_slurm_data.py` and turn them into the
+  higher-level summaries the UI needs.
+
+**Key pieces**
+
+- `summarise_live_by_name(df)` – live queue grouped by job name with per-name
+  counts, status summary, elapsed time, and a representative sample JobID.
+- `summarise_failures_by_name(dfh)` – failures grouped by JobName with a count
+  and “last failure” details (JobID, State, ExitCode, Elapsed, Node, MaxRSS,
+  and optional fields such as ReqMem / Timelimit / WorkDir).
+- `derive_history_start_from_squeue(df)` – approximates a sensible `--starttime`
+  for `sacct` based on the oldest running job’s elapsed time, or start of today
+  if nothing is running.
+- `_parse_maxrss_to_gb(value)` – converts Slurm MaxRSS strings into GiB.
+- `_derive_array_or_job_id(job_id)` – maps `12345_3` → `12345` to group array
+  elements.
+
+All of these helpers are pure transformations (no IO).
+
+#### 2.3 View layer: `swc_slurm_dashboard.py`
+
+`swc_slurm_dashboard.py` is the Streamlit entrypoint and is structured into
+clear sections (in order):
 
 1. **Styles and page config**
-2. **Shell helpers**
-3. **Slurm parsers**
-4. **Cached wrappers**
-5. **Summaries / aggregations**
-6. **Sidebar (user + refresh)**
-7. **Tabs** (`Overview`, `Job inspector`, `Help`)
+2. **Cached wrappers** over the read/shape layers
+3. **Refresh timer helper**
+4. **Sidebar (user + refresh)**
+5. **Tabs** (`Overview`, `Job inspector`, `Help`)
 
-#### 2.1 Styles & layout
+##### 2.3.1 Styles & layout
 
 - `st.set_page_config(...)`:
   - Title: `SWC Slurm Dashboard`.
@@ -89,90 +147,22 @@ place you should need to touch for port / tunnelling conventions.
 
 This gives a consistent dark theme without depending on external CSS files.
 
-#### 2.2 Shell helpers
+##### 2.3.2 Cached wrappers
 
-- `sh(cmd: str) -> str`
-  - Thin wrapper around `subprocess.check_output`.
-  - Raises on non-zero exit.
-- `safe_sh(cmd: str) -> str`
-  - Calls `sh`, but catches errors and returns error text instead of raising.
-  - Used everywhere Slurm commands are invoked so the UI can degrade
-    gracefully if Slurm is misconfigured.
+To avoid hammering the scheduler and to give Streamlit stable entrypoints, the
+view layer wraps the read/shape functions in `@st.cache_data(ttl=...)`
+decorated helpers:
 
-**Important**: only fixed-format Slurm commands ever reach `safe_sh`. The code
-never concatenates free-form user input into arbitrary shell.
-
-#### 2.3 Slurm parsers
-
-Two main families:
-
-- **Queue (live)** – `squeue`:
-  - `parse_squeue(user: str) -> DataFrame`:
-    - Tries `squeue --json` first (`_squeue_from_json`).
-    - Falls back to pipe-delimited `squeue -o '%i|%T|%j|%M|%R|%E'`.
-    - Returns a DataFrame with fixed columns: `JobID, State, Name, Time,
-      Reason, Dependency`.
-- **History (failures)** – `sacct`:
-  - `parse_sacct(user: str, start: str) -> DataFrame`:
-    - Tries `sacct --json` first (`_sacct_from_json`).
-    - Falls back to `--parsable2` with a fixed column list.
-    - Returns `SACCT_ALL_COLUMNS`:
-      - `JobID, JobName, State, ExitCode, Elapsed, NodeList, MaxRSS,
-        ReqMem, Timelimit, CPUTime, WorkDir, SubmitLine, Submit, Reason`.
-
-Other helpers:
-
-- `list_squeue_users()` – reads the distinct users currently in `squeue`,
-  plus `$USER`, and returns a sorted list.
-- `scontrol_show_job(job_id: str) -> str` – validates the job ID with a
-  regex and returns raw `scontrol show job` output or an error message.
-
-#### 2.4 Cached wrappers
-
-To avoid hammering the scheduler:
-
-- `@st.cache_data(ttl=...)` on:
-  - `get_squeue_users()`
-  - `get_squeue(user)`
-  - `get_sacct(user, start)`
-  - `get_live_by_name(df)`
-  - `get_failures_by_name(dfh)`
-  - `get_scontrol_job(job_id)`
+- `get_squeue_users()` – uses `list_squeue_users()`.
+- `get_squeue(user)` – uses `parse_squeue(user)`.
+- `get_sacct(user, start)` – uses `parse_sacct(user, start)`.
+- `get_live_by_name(df)` – uses `summarise_live_by_name(df)`.
+- `get_failures_by_name(dfh)` – uses `summarise_failures_by_name(dfh)`.
+- `get_scontrol_job(job_id)` – uses `scontrol_show_job(job_id)`.
 
 The **Refresh now** button in the sidebar does a full refresh by calling
 `st.cache_data.clear()` before rerunning, so you always get fresh data when
 you ask for it.
-
-#### 2.5 Summaries / aggregations
-
-- `summarise_live_by_name(df)`:
-  - Input: raw `squeue` DataFrame.
-  - Groups by `Name`.
-  - Computes per-name counts focused on the live queue: RUN, WAIT, TOTAL.
-  - Chooses:
-    - `SampleJobID`: prefers a RUNNING `JobID` if any (for arrays this is a
-      single job array element such as `12345_0`), otherwise the last job in
-      the group.
-    - `ELAPSED`: time for a RUNNING job in the group, or `-`.
-    - `NodeReason`: node name or scheduler reason, with a best-effort pick.
-  - Derives a **Status** per name:
-    - FAILED > RUNNING > various WAITING states > UNKNOWN.
-  - Output columns:
-    - `Name, SampleJobID, RUN, WAIT, TOTAL,
-      ELAPSED, Status, NodeReason`.
-
-- `summarise_failures_by_name(dfh)`:
-  - Input: `sacct` history for a user since a start time.
-  - Filters to failure-like states:
-    - FAILED, OUT_OF_MEMORY, CANCELLED, TIMEOUT.
-  - Groups by `JobName`:
-    - `Count` = number of failing jobs with that name.
-    - `Last*` fields from the most recent failing job (JobID, State,
-      ExitCode, Elapsed, Node, MaxRSS, etc.).
-  - Optionally includes `ReqMem`, `Timelimit`, `CPUTime`, `WorkDir`,
-    `Reason` when present.
-
-These two summaries are exactly what power the two main tables.
 
 ---
 
