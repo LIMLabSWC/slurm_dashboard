@@ -70,7 +70,7 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .section-title { font-weight: 600; color: #a855f7; margin-top: 3rem; margin-bottom: 0.75rem; }
+    .section-title { font-weight: 600; color: #a855f7; margin-top: 2rem; margin-bottom: 0.75rem; }
     .help-text { font-size: 0.85rem; color: var(--text-color); opacity: 0.9; margin-bottom: 0.75rem; }
     .legend { font-size: 0.8rem; margin-top: 0.5rem; }
     .status-running { color: #22c55e; }
@@ -80,7 +80,6 @@ st.markdown(
     .health-ok { color: #22c55e; }
     .health-warn { color: #f97316; }
     .dashboard-meta { font-size: 0.875rem; color: var(--text-color); opacity: 0.75; margin-top: -0.5rem; margin-bottom: 1.5rem; }
-    [data-testid="stExpander"] summary::first-letter { color: #9ca3af; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -257,7 +256,7 @@ with tab_overview:
             '<p class="section-title">QUEUED JOBS (by name)</p>',
             unsafe_allow_html=True,
         )
-        with st.expander("ℹ How to read this", expanded=False):
+        with st.expander("How to read this", expanded=False):
             st.markdown(
                 "- Rows are grouped by **JOB NAME**, so each row summarizes "
                 "all queue entries with that name.\n"
@@ -399,7 +398,7 @@ with tab_overview:
         f'<p class="section-title">FINISHED JOBS (since: {history_since_label})</p>',
         unsafe_allow_html=True,
     )
-    with st.expander("ℹ How to read this", expanded=False):
+    with st.expander("How to read this", expanded=False):
         st.markdown(
             "- Shows jobs where `State` is `COMPLETED` and `ExitCode` "
             "starts with `0:` (successful exits) for this user.\n"
@@ -514,7 +513,7 @@ with tab_overview:
         f'<p class="section-title">FAILURES (since: {history_since_label})</p>',
         unsafe_allow_html=True,
     )
-    with st.expander("ℹ How to read this", expanded=False):
+    with st.expander("How to read this", expanded=False):
         st.markdown(
             "- Includes jobs in these states: `FAILED`, `CANCELLED`, "
             "`TIMEOUT`, `OUT_OF_MEMORY`, or any job with a non-zero "
