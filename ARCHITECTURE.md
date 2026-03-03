@@ -213,7 +213,7 @@ Rendered inside the `Overview` tab.
 
 When queue isn’t empty:
 
-1. Section title: `JOBS BY NAME`.
+1. Section title: `QUEUED JOBS (by name)`.
 2. `How to read this` expander:
    - Explains:
      - Grouping by job name.
@@ -278,19 +278,6 @@ When queue isn’t empty:
 
 Rendered inside the `Job inspector` tab.
 
----
-
-### 6. `Help` tab
-
-Rendered inside the `Help` tab.
-
-- Displays the contents of `SLURM_DASHBOARD_HELP.md` using `st.markdown`.
-- Explains how SLURM jobs / arrays / job names map onto:
-  - **SUMMARY**
-  - **QUEUED JOBS**
-  - **FINISHED JOBS**
-  - **FAILURES**
-
 **Purpose**
 
 - Let the user run `scontrol show job <JobID>` via a simple form, and see raw
@@ -317,6 +304,19 @@ Rendered inside the `Help` tab.
 
 The Job inspector is intentionally thin; it delegates all Slurm semantics to
 `scontrol`.
+
+---
+
+### 6. `Help` tab
+
+Rendered inside the `Help` tab.
+
+- Displays the contents of `SLURM_DASHBOARD_HELP.md` using `st.markdown`.
+- Explains how SLURM jobs / arrays / job names map onto:
+  - **SUMMARY**
+  - **QUEUED JOBS**
+  - **FINISHED JOBS**
+  - **FAILURES**
 
 ---
 
@@ -357,7 +357,7 @@ Some natural extension points:
 - **Additional history views**:
   - Configurable `start` for `get_sacct` (e.g. “last 7 days”).
 - **Job detail panels**:
-  - When clicking a row in `JOBS BY NAME`, pre-fill the Job inspector with its
+  - When clicking a row in **QUEUED JOBS (by name)**, pre-fill the Job inspector with its
     `SAMPLE JOB ID`.
 
 The current structure (parsers → cached wrappers → summarizers → pages) is

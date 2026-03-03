@@ -38,6 +38,19 @@ import pandas as pd
 
 
 # ------------------------------------------------------------------------------
+# Exception for CLI failures
+# ------------------------------------------------------------------------------
+
+
+class SlurmCommandError(Exception):
+    """Raised when a SLURM CLI command returns error output instead of data."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+# ------------------------------------------------------------------------------
 # Shell helpers
 # ------------------------------------------------------------------------------
 
@@ -173,6 +186,9 @@ def parse_squeue(user: str) -> pd.DataFrame:
 
     Outputs:
         - pandas.DataFrame with one row per job and SQUEUE_COLUMNS.
+
+    Raises:
+        SlurmCommandError: When squeue returns error output instead of data.
     """
     cmd_json = f"squeue -u {user} --json 2>/dev/null"
     out_json = safe_sh(cmd_json).strip()
@@ -188,6 +204,15 @@ def parse_squeue(user: str) -> pd.DataFrame:
         if len(parts) != 6:
             continue
         rows.append(tuple(p.strip() for p in parts))
+    if not rows and out:
+        out_lower = out.lower()
+        if (
+            out_lower.startswith("squeue:")
+            or "squeue: error" in out_lower
+            or "command not found" in out_lower
+            or ("error" in out_lower and "squeue" in out_lower)
+        ):
+            raise SlurmCommandError(out.strip())
     return pd.DataFrame(rows, columns=SQUEUE_COLUMNS)
 
 
@@ -271,6 +296,9 @@ def parse_sacct(user: str, start: str) -> pd.DataFrame:
 
     Outputs:
         - pandas.DataFrame with SACCT_ALL_COLUMNS (may be empty).
+
+    Raises:
+        SlurmCommandError: When sacct returns error output instead of data.
     """
     cmd_json = f"sacct -u {user} --starttime {start} --json 2>/dev/null"
     out_json = safe_sh(cmd_json).strip()
@@ -287,7 +315,13 @@ def parse_sacct(user: str, start: str) -> pd.DataFrame:
         f"--format={fmt} --parsable2 --noheader"
     )
     out = safe_sh(cmd).strip()
-    if not out or "sacct: error" in out.lower():
+    if out:
+        out_lower = out.lower()
+        if "sacct: error" in out_lower or (
+            "sacct" in out_lower and "error" in out_lower and "|" not in out
+        ):
+            raise SlurmCommandError(out.strip())
+    if not out:
         return pd.DataFrame(columns=SACCT_ALL_COLUMNS)
     rows: List[tuple] = []
     n_cols = len(SACCT_ALL_COLUMNS)
@@ -361,9 +395,11 @@ def scontrol_show_job(job_id: str) -> str:
 
 __all__ = [
     "SACCT_ALL_COLUMNS",
-    "parse_squeue",
-    "parse_sacct",
+    "SQUEUE_COLUMNS",
+    "SlurmCommandError",
     "list_squeue_users",
+    "parse_sacct",
+    "parse_squeue",
     "scontrol_show_job",
 ]
 

@@ -4,13 +4,9 @@ Purpose:
 
 Execution Flow:
     (Streamlit entrypoint)
-      ├── shell helpers
-      │     └── sh() → safe_sh()
-      ├── SLURM data
-      │     ├── parse_squeue() → _squeue_from_json()
-      │     ├── parse_sacct()  → _sacct_from_json()
-      │     ├── list_squeue_users()
-      │     └── scontrol_show_job()
+      ├── SLURM data (read_slurm_data: parse_squeue → _squeue_from_json,
+      │              parse_sacct → _sacct_from_json, list_squeue_users,
+      │              scontrol_show_job)
       ├── cached wrappers
       │     ├── get_squeue_users(), get_squeue(), get_sacct()
       │     └── get_live_by_name(), get_failures_by_name(), get_scontrol_job()
@@ -46,7 +42,8 @@ import pandas as pd
 import streamlit as st
 
 from read_slurm_data import (
-    SACCT_ALL_COLUMNS,
+    SQUEUE_COLUMNS,
+    SlurmCommandError,
     list_squeue_users,
     parse_sacct,
     parse_squeue,
@@ -73,7 +70,7 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .section-title { font-weight: 600; color: #a855f7; margin-top: 1.25rem; margin-bottom: 0.5rem; }
+    .section-title { font-weight: 600; color: #a855f7; margin-top: 3rem; margin-bottom: 0.75rem; }
     .help-text { font-size: 0.85rem; color: var(--text-color); opacity: 0.9; margin-bottom: 0.75rem; }
     .legend { font-size: 0.8rem; margin-top: 0.5rem; }
     .status-running { color: #22c55e; }
@@ -202,7 +199,11 @@ tab_overview, tab_inspector, tab_help = st.tabs(
 
 # Overview tab: live queue, finished jobs, failures
 with tab_overview:
-    df = get_squeue(selected_user)
+    try:
+        df = get_squeue(selected_user)
+    except SlurmCommandError as e:
+        st.error(f"**squeue** failed: {e.message}")
+        df = pd.DataFrame(columns=SQUEUE_COLUMNS)
     if df.empty:
         total_jobs, running, pending, dep_bad = 0, 0, 0, 0
         running_names = []
@@ -387,7 +388,11 @@ with tab_overview:
                             )
 
     history_start, history_since_label = derive_history_start_from_squeue(df)
-    dfh_window = get_sacct(selected_user, history_start)
+    try:
+        dfh_window = get_sacct(selected_user, history_start)
+    except SlurmCommandError as e:
+        st.error(f"**sacct** failed: {e.message}")
+        dfh_window = pd.DataFrame()
 
     # ---------------- FINISHED JOBS: related vs other ----------------
     st.markdown(
@@ -691,7 +696,6 @@ digraph {
   T0 -> S0B [label="steps"];
   T0 -> S0E;
 
- 
   T3 -> Q [label="waiting"];
 
   T1 -> F [label="successful"];
