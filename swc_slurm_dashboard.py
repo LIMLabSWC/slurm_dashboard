@@ -698,6 +698,43 @@ def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
     return merged.sort_values(["Count", "JobName"], ascending=[False, True])
 
 
+def _parse_maxrss_to_gb(value: str) -> float:
+    """
+    Best-effort parser for Slurm MaxRSS values to GiB.
+
+    Handles strings such as:
+    - "123456K", "1024M", "2G", "1.5T"
+    - Bare numbers are treated as MiB (Slurm's common default).
+    Returns NaN on any parsing error.
+    """
+    if not isinstance(value, str):
+        return float("nan")
+    s = value.strip()
+    if not s:
+        return float("nan")
+    try:
+        m = re.match(r"^([0-9]*\.?[0-9]+)\s*([kKmMgGtT])?.*$", s)
+        if not m:
+            return float("nan")
+        num = float(m.group(1))
+        unit = (m.group(2) or "M").upper()
+        if unit == "K":
+            # KiB -> GiB
+            return num / (1024**2)
+        if unit == "M":
+            # MiB -> GiB
+            return num / 1024.0
+        if unit == "G":
+            # GiB
+            return num
+        if unit == "T":
+            # TiB -> GiB
+            return num * 1024.0
+        return float("nan")
+    except Exception:
+        return float("nan")
+
+
 if hasattr(st, "fragment"):
 
     @st.fragment(run_every=1)
@@ -952,6 +989,14 @@ with tab_overview:
             else:
                 df_success_all["RelatedToRunning"] = False
 
+            # Derive max used memory in GiB from MaxRSS for display.
+            if "MaxRSS" in df_success_all.columns:
+                df_success_all["MaxUsedMemGB"] = df_success_all["MaxRSS"].apply(
+                    _parse_maxrss_to_gb
+                )
+            else:
+                df_success_all["MaxUsedMemGB"] = float("nan")
+
             df_success_related = df_success_all[df_success_all["RelatedToRunning"]]
             df_success_other = df_success_all[~df_success_all["RelatedToRunning"]]
 
@@ -968,6 +1013,7 @@ with tab_overview:
                     "ExitCode",
                     "Elapsed",
                     "NodeList",
+                    "MaxUsedMemGB",
                 ]
                 detail_display = df_subset[detail_cols].rename(
                     columns={
@@ -978,8 +1024,13 @@ with tab_overview:
                         "ExitCode": "EXIT CODE",
                         "Elapsed": "ELAPSED",
                         "NodeList": "NODELIST",
+                        "MaxUsedMemGB": "MAX USED MEMORY in GB",
                     }
                 )
+                if "MAX USED MEMORY in GB" in detail_display.columns:
+                    detail_display["MAX USED MEMORY in GB"] = detail_display[
+                        "MAX USED MEMORY in GB"
+                    ].round(2)
                 st.dataframe(
                     detail_display,
                     use_container_width=True,
