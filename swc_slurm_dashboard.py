@@ -957,6 +957,16 @@ with tab_overview:
             "ID** matches an array that currently has at least one RUNNING "
             "job in the queue; the **other** table lists all remaining "
             "finished jobs in this time window.\n"
+            "- `REQUESTED MEMORY` (ReqMem) is usually reported on the main "
+            "job / array element row (for example `2469691_5`), while "
+            "`MAX USED MEMORY in GB` comes from the corresponding batch "
+            "step (for example `2469691_5.batch`). Use the shared "
+            "`ARRAY JOB ID` / prefix of `JOB ID` to match requested and "
+            "used memory for a given array element.\n"
+            "- To tune memory requests, compare `REQUESTED MEMORY` and "
+            "`MAX USED MEMORY in GB` across successful jobs with the same "
+            "`JOB NAME` / `ARRAY JOB ID` and choose a value with a bit of "
+            "headroom for future runs.\n"
             "- Each table is flat (one row per JobID), so you can sort and "
             "search directly without extra nesting."
         )
@@ -1013,6 +1023,7 @@ with tab_overview:
                     "ExitCode",
                     "Elapsed",
                     "NodeList",
+                    "ReqMem",
                     "MaxUsedMemGB",
                 ]
                 detail_display = df_subset[detail_cols].rename(
@@ -1024,6 +1035,7 @@ with tab_overview:
                         "ExitCode": "EXIT CODE",
                         "Elapsed": "ELAPSED",
                         "NodeList": "NODELIST",
+                        "ReqMem": "REQUESTED MEMORY",
                         "MaxUsedMemGB": "MAX USED MEMORY in GB",
                     }
                 )
@@ -1089,11 +1101,59 @@ with tab_overview:
                 if df_subset.empty:
                     st.info("No failures in this category for this window.")
                     return
-                st.dataframe(
-                    df_subset,
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                preferred_order = [
+                    "LastJobID",
+                    "JobName",
+                    "Count",
+                    "LastState",
+                    "LastExitCode",
+                    "LastElapsed",
+                    "LastNode",
+                    "ReqMem",
+                    "MaxRSS",
+                    "Timelimit",
+                    "CPUTime",
+                    "WorkDir",
+                    "Reason",
+                ]
+                cols = [
+                    c for c in preferred_order if c in df_subset.columns
+                ] + [
+                    c
+                    for c in df_subset.columns
+                    if c not in preferred_order
+                ]
+                df_display = df_subset[cols]
+                try:
+                    def _fail_state_css(val: str) -> str:
+                        if not isinstance(val, str):
+                            return ""
+                        upper = val.upper()
+                        if "OUT_OF_MEMORY" in upper or "TIMEOUT" in upper:
+                            return "color: #ef4444; font-weight: 500;"
+                        if "FAILED" in upper or "CANCELLED" in upper:
+                            return "color: #f97316; font-weight: 500;"
+                        return ""
+
+                    styled = df_display.style.apply(
+                        lambda col: (
+                            [_fail_state_css(v) for v in col]
+                            if col.name == "LastState"
+                            else [""] * len(col)
+                        ),
+                        axis=0,
+                    )
+                    st.dataframe(
+                        styled,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                except Exception:
+                    st.dataframe(
+                        df_display,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
             _render_fail_block(
                 "Related to running job names", df_fail_related
