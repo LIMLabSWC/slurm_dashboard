@@ -936,6 +936,49 @@ with tab_overview:
         except Exception:
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
+        # Optional detail view for queued jobs by name.
+        if running_names:
+            with st.expander(
+                "Queued job details (for running job names)", expanded=False
+            ):
+                detail_name = st.selectbox(
+                    "Job name to inspect (details below)",
+                    options=["(none)"] + sorted(running_names),
+                    index=0,
+                    key="queued_job_detail_name",
+                )
+                if detail_name != "(none)":
+                    df_detail = df[df["Name"] == detail_name].copy()
+                    if not df_detail.empty:
+                        detail_cols = [
+                            "JobID",
+                            "State",
+                            "Time",
+                            "Reason",
+                            "Dependency",
+                        ]
+                        detail_cols = [
+                            c for c in detail_cols if c in df_detail.columns
+                        ]
+                        df_detail_display = df_detail[detail_cols].rename(
+                            columns={
+                                "JobID": "JOB ID",
+                                "State": "STATE",
+                                "Time": "ELAPSED",
+                                "Reason": "NODE / REASON",
+                                "Dependency": "DEPENDENCY",
+                            }
+                        )
+                        st.dataframe(
+                            df_detail_display,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        st.caption(
+                            "Rows above show individual queue entries (including array "
+                            "elements and their states) for the selected job name."
+                        )
+
     history_start, history_since_label = derive_history_start_from_squeue(df)
     dfh_window = get_sacct(selected_user, history_start)
 
