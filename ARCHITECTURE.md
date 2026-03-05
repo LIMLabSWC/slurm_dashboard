@@ -214,7 +214,7 @@ Rendered inside the `Overview` tab.
 When queue isn’t empty:
 
 1. Section title: `QUEUED JOBS (by name)`.
-2. `How to read this` expander:
+2. `How to read this section` expander:
    - Explains:
      - Grouping by job name.
      - Meaning of each column.
@@ -228,7 +228,7 @@ When queue isn’t empty:
 **Finished jobs**
 
 - Section title: `FINISHED JOBS (since: <date>)`.
-- `How to read this` expander:
+- `How to read this section` expander:
   - Explains:
     - The **since** date is the start of the history window, derived from the
       live queue:
@@ -254,7 +254,7 @@ When queue isn’t empty:
 **Failures**
 
 - Section title: `FAILURES (since: <date>)`.
-- `How to read this` expander:
+- `How to read this section` expander:
   - Explains:
     - The same history window as **Finished jobs** is used.
     - Included rows:

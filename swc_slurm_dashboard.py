@@ -70,8 +70,20 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .section-title { font-weight: 600; color: #a855f7; margin-top: 2rem; margin-bottom: 0.75rem; }
-    .help-text { font-size: 0.85rem; color: var(--text-color); opacity: 0.9; margin-bottom: 0.75rem; }
+    .section-title { 
+        font-weight: 600;
+        color: #a855f7;
+        margin-top: 2rem; 
+        margin-bottom: 0.75rem; 
+        padding-top: 1.5rem;
+    }
+    .help-text { 
+        font-size: 0.85rem; 
+        color: var(--text-color); 
+        opacity: 0.9; 
+        margin-bottom: 0.75rem; 
+        padding-top: 1.5rem;
+    }
     .legend { font-size: 0.8rem; margin-top: 0.5rem; }
     .status-running { color: #22c55e; }
     .status-waiting { color: #eab308; }
@@ -79,7 +91,14 @@ st.markdown(
     .status-done { color: #06b6d4; }
     .health-ok { color: #22c55e; }
     .health-warn { color: #f97316; }
-    .dashboard-meta { font-size: 0.875rem; color: var(--text-color); opacity: 0.75; margin-top: -0.5rem; margin-bottom: 1.5rem; }
+    .dashboard-meta { 
+        font-size: 0.875rem; 
+        color: var(--text-color); 
+        opacity: 0.75; 
+        margin-top: -0.5rem; 
+        margin-bottom: 1.5rem; 
+        padding-top: 1.5rem;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -256,7 +275,8 @@ with tab_overview:
             '<p class="section-title">QUEUED JOBS (by name)</p>',
             unsafe_allow_html=True,
         )
-        with st.expander("How to read this", expanded=False):
+        with st.expander("How to read this section", expanded=False):
+            st.caption("Guidance for interpreting the table below.")
             st.markdown(
                 "- Rows are grouped by **JOB NAME**, so each row summarizes "
                 "all queue entries with that name.\n"
@@ -329,7 +349,7 @@ with tab_overview:
         except Exception:
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-        # Optional detail view for queued jobs by array job ID.
+        # Optional detail view: only for array jobs (IDs with >1 queue entry).
         if running_job_ids:
             array_ids = sorted(
                 {
@@ -339,52 +359,57 @@ with tab_overview:
                 }
             )
             if array_ids:
-                with st.expander(
-                    "View queue entries by array job ID", expanded=False
-                ):
-                    detail_array_id = st.selectbox(
-                        "Array job ID to inspect (details below)",
-                        options=["(none)"] + array_ids,
-                        index=0,
-                        key="queued_job_detail_array_id",
-                    )
-                    if detail_array_id != "(none)":
-                        mask = (
-                            df["JobID"]
-                            .astype(str)
-                            .map(_derive_array_or_job_id)
-                            == detail_array_id
-                        )
-                        df_detail = df[mask].copy()
-                        if not df_detail.empty:
-                            detail_cols = [
-                                "JobID",
-                                "State",
-                                "Time",
-                                "Reason",
-                                "Dependency",
-                            ]
-                            detail_cols = [
-                                c for c in detail_cols if c in df_detail.columns
-                            ]
-                            df_detail_display = df_detail[detail_cols].rename(
-                                columns={
-                                    "JobID": "JOB ID",
-                                    "State": "STATE",
-                                    "Time": "ELAPSED",
-                                    "Reason": "NODE / REASON",
-                                    "Dependency": "DEPENDENCY",
-                                }
+                # Keep only IDs that correspond to more than one queue entry.
+                job_ids_series = df["JobID"].astype(str)
+                derived_ids = job_ids_series.map(_derive_array_or_job_id)
+                counts_by_array = derived_ids.value_counts()
+                array_ids_with_multiple = [
+                    aid for aid in array_ids if counts_by_array.get(aid, 0) > 1
+                ]
+
+                if array_ids_with_multiple:
+                    # Visually indent the expander so it sits inside this section.
+                    _, detail_col, _ = st.columns([0.01, 0.9, 0.01])
+                    with detail_col:
+                        with st.expander("View job details", expanded=False):
+                            detail_array_id = st.selectbox(
+                                "Array job ID to inspect (details below)",
+                                options=array_ids_with_multiple,
+                                index=0,
+                                key="queued_job_detail_array_id",
                             )
-                            st.dataframe(
-                                df_detail_display,
-                                use_container_width=True,
-                                hide_index=True,
-                            )
-                            st.caption(
-                                "Rows above show individual queue entries (including array "
-                                "elements and their states) for the selected array job ID."
-                            )
+                            mask = derived_ids == detail_array_id
+                            df_detail = df[mask].copy()
+                            if not df_detail.empty:
+                                detail_cols = [
+                                    "JobID",
+                                    "State",
+                                    "Time",
+                                    "Reason",
+                                    "Dependency",
+                                ]
+                                detail_cols = [
+                                    c for c in detail_cols if c in df_detail.columns
+                                ]
+                                df_detail_display = df_detail[detail_cols].rename(
+                                    columns={
+                                        "JobID": "JOB ID",
+                                        "State": "STATE",
+                                        "Time": "ELAPSED",
+                                        "Reason": "NODE / REASON",
+                                        "Dependency": "DEPENDENCY",
+                                    }
+                                )
+                                st.dataframe(
+                                    df_detail_display,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+                                st.caption(
+                                    "Rows above show individual queue entries (array "
+                                    "elements and their states) for the selected array "
+                                    "job ID."
+                                )
 
     history_start, history_since_label = derive_history_start_from_squeue(df)
     try:
@@ -398,7 +423,8 @@ with tab_overview:
         f'<p class="section-title">FINISHED JOBS (since: {history_since_label})</p>',
         unsafe_allow_html=True,
     )
-    with st.expander("How to read this", expanded=False):
+    with st.expander("How to read this section", expanded=False):
+        st.caption("Guidance for interpreting the table below.")
         st.markdown(
             "- Shows jobs where `State` is `COMPLETED` and `ExitCode` "
             "starts with `0:` (successful exits) for this user.\n"
@@ -513,7 +539,8 @@ with tab_overview:
         f'<p class="section-title">FAILURES (since: {history_since_label})</p>',
         unsafe_allow_html=True,
     )
-    with st.expander("How to read this", expanded=False):
+    with st.expander("How to read this section", expanded=False):
+        st.caption("Guidance for interpreting the table below.")
         st.markdown(
             "- Includes jobs in these states: `FAILED`, `CANCELLED`, "
             "`TIMEOUT`, `OUT_OF_MEMORY`, or any job with a non-zero "
