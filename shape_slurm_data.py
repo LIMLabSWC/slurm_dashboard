@@ -34,23 +34,10 @@ import pandas as pd
 
 
 def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Purpose:
-        Aggregate live queue data by job name with status and a sample JobID.
+    """Summarise live queue data by job name.
 
-    Execution Flow:
-        summarise_live_by_name()
-          └── groupby('Name') and compute summary metrics per name.
-
-    Side Effects:
-        - None (pure DataFrame transformation).
-
-    Inputs:
-        - df: DataFrame from `parse_squeue`, including JobID, State, Time, Reason.
-
-    Outputs:
-        - DataFrame with one row per job name, counts, elapsed, status,
-          node reason, and a representative SampleJobID.
+    Returns one row per name with RUN/WAIT/TOTAL counts, a status label,
+    elapsed time (if running), a sample JobID, and a node/reason string.
     """
     if df.empty:
         return pd.DataFrame(
@@ -123,12 +110,7 @@ def summarise_live_by_name(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _derive_array_or_job_id(job_id: str) -> str:
-    """
-    Derive an array-or-job identifier from a SLURM JobID.
-
-    For array tasks like '12345_3', this returns '12345'.
-    For non-array jobs, this returns the original JobID.
-    """
+    """Return the array ID for a JobID, or the JobID itself if not an array."""
     if not isinstance(job_id, str):
         return ""
     base = job_id.split("_", 1)[0]
@@ -180,15 +162,10 @@ def _parse_squeue_elapsed_to_seconds(value: str) -> int:
 
 
 def derive_history_start_from_squeue(df: pd.DataFrame) -> tuple[str, str]:
-    """
-    Derive a sacct --starttime and human-readable label from the live queue.
+    """Choose a sacct --starttime from the live queue and return it with a label.
 
-    - If there are RUNNING tasks, we approximate the earliest submit time as
-      "now - max(elapsed)", using the squeue Time column.
-    - If there are no RUNNING tasks, we default to the start of today (UTC).
-
-    Returns:
-        (starttime_for_sacct, label_for_ui)
+    Uses the longest-running task to approximate a start time, or the start
+    of today (UTC) if nothing is running.
     """
     now = datetime.now(timezone.utc)
     running = df[df["State"] == "RUNNING"] if not df.empty else pd.DataFrame()
@@ -215,24 +192,11 @@ def derive_history_start_from_squeue(df: pd.DataFrame) -> tuple[str, str]:
 
 
 def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
-    """
-    Purpose:
-        Summarise historic failed/cancelled/timed-out jobs grouped by name.
+    """Summarise historic failed/cancelled/timed-out jobs grouped by JobName.
 
-    Execution Flow:
-        summarise_failures_by_name()
-          ├── filter interesting failure states
-          ├── count failures per JobName
-          └── attach most recent failure details per name
-
-    Side Effects:
-        - None (pure DataFrame transformation).
-
-    Inputs:
-        - dfh: DataFrame from `parse_sacct` for a given time window.
-
-    Outputs:
-        - DataFrame with one row per JobName and aggregated failure details.
+    Returns one row per name with a failure count plus details from the most
+    recent failing job (LastJobID, state, exit code, elapsed, node, MaxRSS,
+    and selected resource fields when present).
     """
     if dfh.empty:
         return pd.DataFrame(
@@ -311,14 +275,7 @@ def summarise_failures_by_name(dfh: pd.DataFrame) -> pd.DataFrame:
 
 
 def _parse_maxrss_to_gb(value: str) -> float:
-    """
-    Best-effort parser for Slurm MaxRSS values to GiB.
-
-    Handles strings such as:
-    - "123456K", "1024M", "2G", "1.5T"
-    - Bare numbers are treated as MiB (Slurm's common default).
-    Returns NaN on any parsing error.
-    """
+    """Best-effort parser for Slurm MaxRSS strings to GiB (returns NaN on error)."""
     if not isinstance(value, str):
         return float("nan")
     s = value.strip()
