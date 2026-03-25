@@ -84,11 +84,6 @@ st.markdown(
         margin-bottom: 0.75rem; 
         padding-top: 1.5rem;
     }
-    .legend { font-size: 0.8rem; margin-top: 0.5rem; }
-    .status-running { color: #22c55e; }
-    .status-waiting { color: #eab308; }
-    .status-failed { color: #ef4444; }
-    .status-done { color: #06b6d4; }
     .health-ok { color: #22c55e; }
     .health-warn { color: #f97316; }
     .dashboard-meta { 
@@ -297,14 +292,6 @@ with tab_overview:
                 "- `BLOCKED (dependency never satisfied)` is the key warning "
                 "state to prioritize."
             )
-            st.markdown(
-                '<p class="legend">'
-                'Legend (STATUS column): '
-                '<span class="status-running">RUNNING</span>, '
-                '<span class="status-waiting">WAITING</span>, '
-                '<span class="status-failed">FAILED / BLOCKED</span></p>',
-                unsafe_allow_html=True,
-            )
         df_by_name = get_live_by_name(df)
         display_cols = [
             "Name",
@@ -368,8 +355,8 @@ with tab_overview:
                 ]
 
                 if array_ids_with_multiple:
-                    # Visually indent the expander so it sits inside this section.
-                    _, detail_col, _ = st.columns([0.01, 0.9, 0.01])
+                    # Add a left indent so the detail expander reads as secondary.
+                    _, detail_col = st.columns([0.06, 0.94])
                     with detail_col:
                         with st.expander("View job details", expanded=False):
                             detail_array_id = st.selectbox(
