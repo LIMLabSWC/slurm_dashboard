@@ -270,7 +270,7 @@ with tab_overview:
             '<p class="section-title">QUEUED JOBS (by name)</p>',
             unsafe_allow_html=True,
         )
-        with st.expander("How to read this section", expanded=False):
+        with st.expander("ⓘ Hint", expanded=False):
             st.caption("Guidance for interpreting the table below.")
             st.markdown(
                 "- Rows are grouped by **JOB NAME**, so each row summarizes "
@@ -410,7 +410,7 @@ with tab_overview:
         f'<p class="section-title">FINISHED JOBS (since: {history_since_label})</p>',
         unsafe_allow_html=True,
     )
-    with st.expander("How to read this section", expanded=False):
+    with st.expander("ⓘ Hint", expanded=False):
         st.caption("Guidance for interpreting the table below.")
         st.markdown(
             "- Shows jobs where `State` is `COMPLETED` and `ExitCode` "
@@ -526,7 +526,7 @@ with tab_overview:
         f'<p class="section-title">FAILURES (since: {history_since_label})</p>',
         unsafe_allow_html=True,
     )
-    with st.expander("How to read this section", expanded=False):
+    with st.expander("ⓘ Hint", expanded=False):
         st.caption("Guidance for interpreting the table below.")
         st.markdown(
             "- Includes jobs in these states: `FAILED`, `CANCELLED`, "
